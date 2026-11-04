@@ -1,0 +1,50 @@
+# GZPro Mod Manager
+
+A small, local-only Windows tool for safely staging pre-cooked `.pak` mods for **Godzilla: Destroy All Monsters Melee Remastered**.
+
+## Run
+
+1. Install Python 3.10 or newer.
+2. Double-click `run.bat`, or run `.\run.bat` from PowerShell.
+3. Keep the terminal open while using the browser page. Press Ctrl+C in the terminal to stop it.
+4. If the game is installed elsewhere, either enter its install folder in the page or run:
+
+   ```powershell
+   .\run.bat --game-dir "D:\SteamLibrary\steamapps\common\Godzilla Destroy All Monsters Melee Remastered"
+   ```
+
+The manager binds only to `127.0.0.1`, asks Windows for an available local port by default, and uses only Python's standard library.
+
+## Mod package format (verified working)
+
+Mods install from a single `.zip` containing the cooked IoStore container:
+
+- `<ModName>.utoc` + `<ModName>.ucas` — required; the cooked container holding the mod's assets.
+- `<ModName>.pak` — optional companion. If the zip has no `.pak`, the manager deploys a tiny verified stub `.pak` instead: this game only mounts a container when a same-named `.pak` sits next to it. The stub is parsed but never mounted, so its contents never reach the game.
+
+All files in the zip must share the same mod name, must sit at the zip root, and no other file types are accepted.
+
+### Two kinds of mods
+
+**Asset override** (default): for mods that replace existing game assets — music, textures, models. The cooked assets must live at the *same package path* as the originals (e.g. `/Game/Audio/GZ1/Streaming/MENU`). The manager deploys them as `GZPro-<ModName>.pak/.utoc/.ucas` directly in `GZPro\Content\Paks`, which gives the container the same mount priority as the game's own container so the replacement wins. **No UE4SS needed.** Verified working: the menu music was replaced with a cooked SoundWave and plays in-game.
+
+**Blueprint mod**: for UE4SS BPModLoaderMod logic mods (a `ModActor` Blueprint at `/Game/Mods/<ModName>/ModActor`). The manager deploys them as `<ModName>.pak/.utoc/.ucas` in `GZPro\Content\Paks\LogicMods`. **Requires UE4SS** installed separately into `GZPro\Binaries\Win64` (the `dwmapi.dll` + `ue4ss` folder from an official UE4SS release); the manager detects it and warns when it is missing. Verified working: a cooked Blueprint actor mod was deployed by this manager and spawned in-game.
+
+## Current scope and safety
+
+- Accepts only `.zip` mod packages in the format above; it does not inspect the cooked assets or confirm they were cooked for a compatible engine. A raw WAV or loose `.uasset` cannot be dropped in directly — cook it into a container first.
+- Keeps a SHA-256-checked backup of every package under `%LOCALAPPDATA%\GZProModManager`.
+- Can disable a managed mod only when every deployed file still matches its saved hash. Re-enabling refuses to overwrite a same-named file that differs.
+- Refuses enable/disable/import operations while `GZProSteam-Win64-Shipping.exe` is running.
+- Never edits or replaces the game's original `GZPro-Windows.*` or `global.*` archives, and refuses mod names that would collide with them. It does not install or enable UE4SS.
+- Shows existing mod files it does not own but never changes them.
+
+**Important:** only install mods you trust. The manager verifies file integrity, not mod behavior.
+
+## Tests
+
+Run the standard-library tests with:
+
+```powershell
+python -m unittest discover -s tests
+```
