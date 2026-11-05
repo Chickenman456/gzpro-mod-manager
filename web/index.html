@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GZPro Mod Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">GODZILLA: DESTROY ALL MONSTERS MELEE REMASTERED</p>
+      <h1>Mod Manager</h1>
+    </div>
+    <span class="local-badge">Local only</span>
+  </header>
+
+  <main>
+    <section class="notice notice-caution" aria-labelledby="status-title">
+      <h2 id="status-title">UE4SS required to load mods</h2>
+      <p id="compatibility-warning">Checking the game install…</p>
+    </section>
+
+    <section class="panel" aria-labelledby="install-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="install-title">Game install</h2>
+          <p class="muted">Choose the folder containing <code>GZPro</code> if it is not detected.</p>
+        </div>
+      </div>
+      <form id="game-dir-form" class="path-form">
+        <label for="game-dir">Game folder</label>
+        <input id="game-dir" name="game-dir" type="text" spellcheck="false" autocomplete="off">
+        <button class="button button-secondary" type="submit">Use folder</button>
+      </form>
+      <p id="install-status" class="muted" role="status"></p>
+    </section>
+
+    <section class="panel" aria-labelledby="mods-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="mods-title">Cooked mods</h2>
+          <p class="muted">Drop a mod <code>.zip</code> here — one containing the cooked <code>.utoc</code> and <code>.ucas</code> (a companion <code>.pak</code> is optional; the manager adds a verified stub if it's missing). The manager keeps a hash-checked backup and never overwrites a file.</p>
+        </div>
+        <button id="refresh" class="button button-secondary" type="button">Refresh</button>
+      </div>
+
+      <div class="kind-picker" role="radiogroup" aria-label="Mod type">
+        <label class="kind-option">
+          <input type="radio" name="mod-kind" value="override" checked>
+          <span><strong>Replaces game assets</strong> <small>music, textures, models — deployed as <code>GZPro-*.utoc/.ucas/.pak</code>, loads without UE4SS</small></span>
+        </label>
+        <label class="kind-option">
+          <input type="radio" name="mod-kind" value="blueprint">
+          <span><strong>Blueprint mod</strong> <small>ModActor logic — deployed to <code>LogicMods</code>, needs UE4SS installed</small></span>
+        </label>
+      </div>
+      <label id="drop-zone" class="drop-zone" for="mod-file">
+        <input id="mod-file" type="file" accept=".zip,application/zip">
+        <span class="drop-icon" aria-hidden="true">↓</span>
+        <strong>Drop a cooked mod .zip</strong>
+        <span>or click to choose one</span>
+        <small>The zip holds the mod's .utoc + .ucas (IoStore container). Raw WAV and loose .uasset files must be cooked into a mod first.</small>
+      </label>
+      <progress id="upload-progress" max="100" value="0" hidden></progress>
+      <p id="action-message" class="message" role="status"></p>
+      <div id="mods" class="mod-list"></div>
+      <div id="unmanaged" class="unmanaged-list"></div>
+    </section>
+
+    <footer>
+      <p><strong>Reversible staging, not a patcher.</strong> The manager copies only into <code>GZPro\Content\Paks\LogicMods</code>. Disable removes only the manager's verified copies; its backup stays in your local app-data folder.</p>
+      <p>It never edits the game's original <code>.pak</code>, <code>.utoc</code>, or <code>.ucas</code> archives. Loading is handled by UE4SS's BPModLoaderMod — verified working on this game — which must be installed separately. A raw WAV must first be cooked into an IoStore mod package.</p>
+    </footer>
+  </main>
+</body>
+</html>

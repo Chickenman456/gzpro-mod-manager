@@ -1,0 +1,974 @@
+from __future__ import annotations
+
+import argparse
+import base64
+import csv
+import hashlib
+import io
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+import uuid
+import webbrowser
+import zipfile
+from datetime import datetime, timezone
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import BinaryIO
+from urllib.parse import unquote, urlsplit
+
+
+DEFAULT_GAME_DIR = Path(
+    r"C:\Program Files (x86)\Steam\steamapps\common"
+    r"\Godzilla Destroy All Monsters Melee Remastered"
+)
+GAME_EXECUTABLE = Path("GZPro") / "Binaries" / "Win64" / "GZProSteam-Win64-Shipping.exe"
+PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
+LOGIC_MODS_DIRECTORY = "LogicMods"
+MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
+WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
+MANAGER_VERSION = 2
+MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+MOD_MEMBER_SUFFIXES = frozenset({".pak", ".utoc", ".ucas"})
+REQUIRED_MEMBER_SUFFIXES = frozenset({".utoc", ".ucas"})
+MOD_KIND_BLUEPRINT = "blueprint"
+MOD_KIND_OVERRIDE = "override"
+MOD_KINDS = frozenset({MOD_KIND_BLUEPRINT, MOD_KIND_OVERRIDE})
+OVERRIDE_PREFIX = "GZPro-"
+# The game's own container files; an override mod must never collide with them.
+GAME_CONTAINER_STEMS = frozenset({"windows"})
+UE4SS_RELATIVE_FILES = (
+    Path("dwmapi.dll"),
+    Path("ue4ss") / "UE4SS.dll",
+)
+GAME_CHECK_LOCK = threading.Lock()
+
+# A minimal but valid .pak (486 bytes, produced by UnrealPak 5.8) holding one
+# inert marker file. This game only mounts a .utoc/.ucas IoStore container when
+# a same-named .pak sits next to it; the legacy .pak is parsed but never
+# mounted, so its contents never reach the game. The manager deploys this stub
+# as <ModName>.pak whenever a mod package has no companion .pak of its own.
+_STUB_PAK = base64.b64decode(
+    "AAAAAAAAAAAGAAAAAAAAAAYAAAAAAAAAAAAAAJTqMkPah4UlKZxM9dTlHJSc1sSnAAAAAABzdHViDQooAAAALi4vLi4vLi4vR1pQcm8vQ29udGVudC9Nb2RzL0daTW9kUHJvYmUvAAEAAAC8C0v6AAAAAAEAAADXAAAAAAAAABQAAAAAAAAA+WKOlGmc/VVkXrxM/PPJC7vK7gwBAAAA6wAAAAAAAAAeAAAAAAAAADNZzzWVyDSF9UqN0Tc6Bzo8d5VcDAAAAAAAAOAAAAAABgAAAAAAAAABAAAAJxDxI9Zl2ZMAAAAAAAAAAAEAAAACAAAALwABAAAACAAAAHN0dWIudHh0AAAAAAAAAAAAAAAAAAAAAAAAAAAA4RJvWgwAAAA7AAAAAAAAAJwAAAAAAAAALujUD6ZeiDXMMCmYrZYHocxSgQ0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+)
+
+
+class ManagerError(Exception):
+    status_code = 400
+
+
+class ConflictError(ManagerError):
+    status_code = 409
+
+
+class StateError(ManagerError):
+    status_code = 500
+
+
+def _default_state_base() -> Path:
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        return Path(local_app_data) / "GZProModManager"
+    return Path.home() / ".gzpro-mod-manager"
+
+
+def _canonical_game_dir(path: Path) -> Path:
+    return path.expanduser().resolve(strict=False)
+
+
+def _safe_mod_stem(stem: str) -> str:
+    if (
+        not stem
+        or stem != stem.strip()
+        or len(stem) > 120
+        or stem.startswith(".")
+        or any(ord(character) < 32 for character in stem)
+        or any(character in '<>:"|?*/\\' for character in stem)
+        or stem.endswith((".", " "))
+    ):
+        raise ManagerError(
+            "Mod file names must be plain names without folders or Windows-reserved characters."
+        )
+    if stem.upper() in {"CON", "PRN", "AUX", "NUL"} or re.fullmatch(
+        r"(?:COM|LPT)[1-9]", stem, re.IGNORECASE
+    ):
+        raise ManagerError("That file name is reserved by Windows.")
+    return stem
+
+
+def _safe_mod_filename(filename: str) -> str:
+    if (
+        not filename
+        or filename != filename.strip()
+        or len(filename) > 128
+        or filename.startswith(".")
+        or "/" in filename
+        or "\\" in filename
+        or any(ord(character) < 32 for character in filename)
+        or any(character in '<>:"|?*' for character in filename)
+        or filename.endswith((".", " "))
+    ):
+        raise ManagerError("Use a plain file name without folders or Windows-reserved characters.")
+    if Path(filename).suffix.casefold() != ".zip":
+        raise ManagerError(
+            "Mods install from a .zip package containing the cooked mod's "
+            ".utoc and .ucas files (a companion .pak is optional). Loose WAV, "
+            ".uasset, or single .pak files are not installable this way."
+        )
+    _safe_mod_stem(Path(filename).stem)
+    return filename
+
+
+def _safe_member_name(name: str) -> str:
+    if (
+        not name
+        or Path(name).name != name
+        or "/" in name
+        or "\\" in name
+        or Path(name).suffix.casefold() not in MOD_MEMBER_SUFFIXES
+    ):
+        raise ManagerError(f"Invalid mod file name: {name}")
+    return name
+
+
+def _hash_file(path: Path) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+            size += len(chunk)
+    return digest.hexdigest(), size
+
+
+class ModManager:
+    def __init__(
+        self,
+        game_dir: Path | None = None,
+        state_base: Path | None = None,
+    ) -> None:
+        self.state_base = (state_base or _default_state_base()).expanduser().resolve()
+        self.state_base.mkdir(parents=True, exist_ok=True)
+        self.config_path = self.state_base / "config.json"
+        configured_game_dir = self._read_configured_game_dir()
+        self.game_dir = _canonical_game_dir(
+            game_dir or configured_game_dir or DEFAULT_GAME_DIR
+        )
+        self._lock = threading.RLock()
+
+    def _read_configured_game_dir(self) -> Path | None:
+        if not self.config_path.is_file():
+            return None
+        try:
+            config = json.loads(self.config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise StateError(f"Could not read the manager settings: {error}") from error
+        configured = config.get("game_dir") if isinstance(config, dict) else None
+        if not isinstance(configured, str) or not configured:
+            raise StateError("The saved manager settings do not contain a valid game folder.")
+        return Path(configured)
+
+    def _game_state_dir(self) -> Path:
+        identity = os.path.normcase(str(self.game_dir)).casefold().encode("utf-8")
+        key = hashlib.sha256(identity).hexdigest()[:20]
+        return self.state_base / "games" / key
+
+    @property
+    def archive_dir(self) -> Path:
+        return self._game_state_dir() / "mods"
+
+    @property
+    def manifest_path(self) -> Path:
+        return self._game_state_dir() / "manifest.json"
+
+    @property
+    def paks_dir(self) -> Path:
+        return self.game_dir / PAKS_DIRECTORY
+
+    @property
+    def logic_mods_dir(self) -> Path:
+        return self.paks_dir / LOGIC_MODS_DIRECTORY
+
+    @property
+    def game_executable(self) -> Path:
+        return self.game_dir / GAME_EXECUTABLE
+
+    def _validate_game_dir(self, path: Path) -> Path:
+        resolved = _canonical_game_dir(path)
+        if not resolved.is_dir():
+            raise ManagerError("That game folder does not exist.")
+        if not (resolved / GAME_EXECUTABLE).is_file():
+            raise ManagerError(
+                f"Could not find {GAME_EXECUTABLE.as_posix()} in that game folder."
+            )
+        if not (resolved / PAKS_DIRECTORY).is_dir():
+            raise ManagerError(f"Could not find {PAKS_DIRECTORY.as_posix()} in that game folder.")
+        return resolved
+
+    def set_game_dir(self, value: str) -> dict[str, object]:
+        if not isinstance(value, str) or not value.strip():
+            raise ManagerError("Choose the game's installation folder.")
+        with self._lock:
+            selected = self._validate_game_dir(Path(value.strip()))
+            self.state_base.mkdir(parents=True, exist_ok=True)
+            temporary = self.config_path.with_name(
+                f".{self.config_path.name}.{uuid.uuid4().hex}.tmp"
+            )
+            try:
+                with temporary.open("x", encoding="utf-8") as stream:
+                    json.dump({"game_dir": str(selected)}, stream, indent=2)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, self.config_path)
+            finally:
+                temporary.unlink(missing_ok=True)
+            self.game_dir = selected
+        return self.get_status()
+
+    def _read_manifest(self) -> list[dict[str, object]]:
+        if not self.manifest_path.exists():
+            return []
+        try:
+            document = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise StateError(f"Could not read the mod recovery manifest: {error}") from error
+        if (
+            not isinstance(document, dict)
+            or document.get("version") != MANAGER_VERSION
+            or not isinstance(document.get("mods"), list)
+        ):
+            raise StateError(
+                "The mod recovery manifest is invalid or from an unsupported version. "
+                "No files were changed."
+            )
+        mods = document["mods"]
+        for mod in mods:
+            if (
+                not isinstance(mod, dict)
+                or not isinstance(mod.get("id"), str)
+                or not MOD_ID_PATTERN.fullmatch(mod["id"])
+                or not isinstance(mod.get("filename"), str)
+                or not isinstance(mod.get("stem"), str)
+                or not isinstance(mod.get("sha256"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", mod["sha256"])
+                or not isinstance(mod.get("size"), int)
+                or not isinstance(mod.get("enabled"), bool)
+                or mod.get("kind") not in MOD_KINDS
+                or not isinstance(mod.get("members"), list)
+                or not mod["members"]
+            ):
+                raise StateError(
+                    "The mod recovery manifest contains an invalid entry. No files were changed."
+                )
+            _safe_mod_filename(mod["filename"])
+            _safe_mod_stem(mod["stem"])
+            for member in mod["members"]:
+                if (
+                    not isinstance(member, dict)
+                    or not isinstance(member.get("name"), str)
+                    or not isinstance(member.get("sha256"), str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", member["sha256"])
+                    or not isinstance(member.get("size"), int)
+                    or member["size"] <= 0
+                ):
+                    raise StateError(
+                        "The mod recovery manifest contains an invalid entry. No files were changed."
+                    )
+                _safe_member_name(member["name"])
+        return mods
+
+    def _write_manifest(self, mods: list[dict[str, object]]) -> None:
+        self._game_state_dir().mkdir(parents=True, exist_ok=True)
+        temporary = self.manifest_path.with_name(
+            f".{self.manifest_path.name}.{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            with temporary.open("x", encoding="utf-8") as stream:
+                json.dump(
+                    {"version": MANAGER_VERSION, "mods": mods},
+                    stream,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.manifest_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _find_mod(self, mods: list[dict[str, object]], mod_id: str) -> dict[str, object]:
+        if not MOD_ID_PATTERN.fullmatch(mod_id):
+            raise ManagerError("That mod entry is invalid.")
+        for mod in mods:
+            if mod["id"] == mod_id:
+                return mod
+        raise ManagerError("That mod is not in this manager's library.")
+
+    def _archive_path(self, mod: dict[str, object]) -> Path:
+        return self.archive_dir / f"{mod['id']}.zip"
+
+    def _existing_named_file(self, directory: Path, filename: str) -> Path | None:
+        if not directory.is_dir():
+            return None
+        wanted = filename.casefold()
+        for entry in directory.iterdir():
+            if entry.name.casefold() == wanted:
+                return entry
+        return None
+
+    def _check_logic_mods_path(self, create: bool) -> None:
+        if not self.paks_dir.is_dir():
+            raise ManagerError(f"The game's Paks folder is missing: {self.paks_dir}")
+        if self.logic_mods_dir.is_symlink() or (
+            hasattr(self.logic_mods_dir, "is_junction")
+            and self.logic_mods_dir.is_junction()
+        ):
+            raise ConflictError(
+                "LogicMods is a link or junction, so the manager will not write through it."
+            )
+        if create:
+            self.logic_mods_dir.mkdir(exist_ok=True)
+        if self.logic_mods_dir.exists() and not self.logic_mods_dir.is_dir():
+            raise ConflictError("The LogicMods path exists but is not a folder.")
+        if self.logic_mods_dir.exists():
+            if self.logic_mods_dir.resolve().parent != self.paks_dir.resolve():
+                raise ConflictError("LogicMods resolves outside the game's Paks folder.")
+
+    def _is_game_running(self) -> bool:
+        if sys.platform != "win32":
+            raise StateError("Game process detection is supported only on Windows.")
+        with GAME_CHECK_LOCK:
+            try:
+                result = subprocess.run(
+                    [
+                        "tasklist.exe",
+                        "/FI",
+                        f"IMAGENAME eq {GAME_EXECUTABLE.name}",
+                        "/FO",
+                        "CSV",
+                        "/NH",
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except (OSError, subprocess.SubprocessError) as error:
+                raise StateError(f"Could not check whether the game is running: {error}") from error
+        try:
+            rows = csv.reader(result.stdout.splitlines())
+            return any(
+                row and row[0].strip('"').casefold() == GAME_EXECUTABLE.name.casefold()
+                for row in rows
+            )
+        except csv.Error as error:
+            raise StateError(f"Could not parse the Windows process list: {error}") from error
+
+    def _require_game_closed(self) -> None:
+        if self._is_game_running():
+            raise ConflictError("Close the game before enabling or disabling a mod.")
+
+    def _copy_stream_to_game(
+        self,
+        source: BinaryIO,
+        destination: Path,
+        expected_hash: str,
+        expected_size: int,
+    ) -> None:
+        temporary = destination.with_name(
+            f".{destination.name}.{uuid.uuid4().hex}.tmp"
+        )
+        digest = hashlib.sha256()
+        copied = 0
+        try:
+            with temporary.open("xb") as output_stream:
+                while chunk := source.read(1024 * 1024):
+                    output_stream.write(chunk)
+                    digest.update(chunk)
+                    copied += len(chunk)
+                output_stream.flush()
+                os.fsync(output_stream.fileno())
+            if copied != expected_size or digest.hexdigest() != expected_hash:
+                raise StateError("The manager's saved mod copy failed its integrity check.")
+            if self._existing_named_file(destination.parent, destination.name) is not None:
+                raise ConflictError(
+                    f"{destination.name} already exists in LogicMods; it was not overwritten."
+                )
+            temporary.rename(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _read_package_members(self, archive: Path) -> tuple[str, list[dict[str, object]]]:
+        try:
+            with zipfile.ZipFile(archive) as package:
+                infos = [info for info in package.infolist() if not info.is_dir()]
+                if not infos:
+                    raise ManagerError("The package is empty.")
+                stem: str | None = None
+                suffixes: set[str] = set()
+                members: list[dict[str, object]] = []
+                total_size = 0
+                for info in infos:
+                    name = info.filename
+                    if Path(name).name != name or "/" in name or "\\" in name:
+                        raise ManagerError(
+                            "The package must contain only bare files, not folders."
+                        )
+                    suffix = Path(name).suffix.casefold()
+                    if suffix not in MOD_MEMBER_SUFFIXES:
+                        raise ManagerError(
+                            f"Unsupported file in the package: {name}. A mod package "
+                            "holds only .utoc, .ucas, and an optional .pak."
+                        )
+                    if stem is None:
+                        stem = _safe_mod_stem(Path(name).stem)
+                    elif Path(name).stem != stem:
+                        raise ManagerError(
+                            "Every file in the package must share the same mod name."
+                        )
+                    if suffix in suffixes:
+                        raise ManagerError(
+                            f"The package contains more than one {suffix} file."
+                        )
+                    suffixes.add(suffix)
+                    if info.file_size <= 0:
+                        raise ManagerError(f"{name} in the package is empty.")
+                    if info.file_size > MAX_MOD_SIZE:
+                        raise ManagerError(f"{name} exceeds the 8 GiB size limit.")
+                    total_size += info.file_size
+                    if total_size > MAX_MOD_SIZE:
+                        raise ManagerError("The package's contents exceed the 8 GiB size limit.")
+                    digest = hashlib.sha256()
+                    with package.open(info) as member_stream:
+                        while chunk := member_stream.read(1024 * 1024):
+                            digest.update(chunk)
+                    members.append(
+                        {"entry": name, "sha256": digest.hexdigest(), "size": info.file_size}
+                    )
+                if not REQUIRED_MEMBER_SUFFIXES.issubset(suffixes):
+                    raise ManagerError(
+                        "The package must contain the cooked mod's .utoc and .ucas files."
+                    )
+                if ".pak" not in suffixes:
+                    members.append(
+                        {
+                            "entry": None,
+                            "suffix": ".pak",
+                            "sha256": hashlib.sha256(_STUB_PAK).hexdigest(),
+                            "size": len(_STUB_PAK),
+                            "stub": True,
+                        }
+                    )
+                return stem, members
+        except zipfile.BadZipFile as error:
+            raise ManagerError("The uploaded file is not a valid .zip package.") from error
+
+    def _mod_target_dir(self, record: dict[str, object]) -> Path:
+        if record["kind"] == MOD_KIND_OVERRIDE:
+            return self.paks_dir
+        return self.logic_mods_dir
+
+    @staticmethod
+    def _deployed_stem(stem: str, kind: str) -> str:
+        if kind == MOD_KIND_OVERRIDE and not stem.casefold().startswith(
+            OVERRIDE_PREFIX.casefold()
+        ):
+            return OVERRIDE_PREFIX + stem
+        return stem
+
+    def _deploy_members(
+        self,
+        archive: Path,
+        members: list[dict[str, object]],
+        target_dir: Path,
+    ) -> None:
+        location = "the game's Paks folder" if target_dir == self.paks_dir else "LogicMods"
+        for member in members:
+            if self._existing_named_file(target_dir, str(member["name"])) is not None:
+                raise ConflictError(
+                    f"{member['name']} already exists in {location}; it was not overwritten."
+                )
+        with zipfile.ZipFile(archive) as package:
+            for member in members:
+                destination = target_dir / str(member["name"])
+                if member.get("stub"):
+                    self._copy_stream_to_game(
+                        io.BytesIO(_STUB_PAK),
+                        destination,
+                        str(member["sha256"]),
+                        int(member["size"]),
+                    )
+                else:
+                    with package.open(str(member["entry"])) as member_stream:
+                        self._copy_stream_to_game(
+                            member_stream,
+                            destination,
+                            str(member["sha256"]),
+                            int(member["size"]),
+                        )
+
+    def install_mod(
+        self,
+        stream: BinaryIO,
+        filename: str,
+        expected_size: int,
+        kind: str = MOD_KIND_OVERRIDE,
+    ) -> dict[str, object]:
+        filename = _safe_mod_filename(filename)
+        if kind not in MOD_KINDS:
+            raise ManagerError("Choose whether this mod replaces game assets or adds a Blueprint mod.")
+        if expected_size <= 0:
+            raise ManagerError("The selected .zip package is empty.")
+        if expected_size > MAX_MOD_SIZE:
+            raise ManagerError("That package exceeds the 8 GiB upload limit.")
+        with self._lock:
+            self._validate_game_dir(self.game_dir)
+            self._require_game_closed()
+            self._check_logic_mods_path(create=False)
+            mods = self._read_manifest()
+
+            self.archive_dir.mkdir(parents=True, exist_ok=True)
+            mod_id = uuid.uuid4().hex
+            staged_archive = self.archive_dir / f".{mod_id}.upload"
+            digest = hashlib.sha256()
+            received = 0
+            archive_path = self.archive_dir / f"{mod_id}.zip"
+            try:
+                with staged_archive.open("xb") as output_stream:
+                    while received < expected_size:
+                        chunk = stream.read(min(1024 * 1024, expected_size - received))
+                        if not chunk:
+                            raise ManagerError("The upload ended before the complete package was received.")
+                        output_stream.write(chunk)
+                        digest.update(chunk)
+                        received += len(chunk)
+                    output_stream.flush()
+                    os.fsync(output_stream.fileno())
+                staged_archive.rename(archive_path)
+
+                stem, members = self._read_package_members(archive_path)
+                if kind == MOD_KIND_OVERRIDE and stem.casefold() in GAME_CONTAINER_STEMS:
+                    raise ManagerError(
+                        f"The mod name {stem} is reserved by the game itself."
+                    )
+                if any(str(mod["stem"]).casefold() == stem.casefold() for mod in mods):
+                    raise ConflictError(
+                        f"{stem} is already in this manager's library. Disable it before importing again."
+                    )
+
+                deployed_stem = self._deployed_stem(stem, kind)
+                for member in members:
+                    suffix = (
+                        str(member.get("suffix"))
+                        if member.get("entry") is None
+                        else Path(str(member["entry"])).suffix
+                    )
+                    member["name"] = deployed_stem + suffix.lower()
+
+                if kind == MOD_KIND_BLUEPRINT:
+                    self._check_logic_mods_path(create=True)
+                self._require_game_closed()
+                self._deploy_members(archive_path, members, self._mod_target_dir({"kind": kind}))
+            except Exception:
+                archive_path.unlink(missing_ok=True)
+                raise
+            finally:
+                staged_archive.unlink(missing_ok=True)
+
+            record: dict[str, object] = {
+                "id": mod_id,
+                "filename": filename,
+                "stem": stem,
+                "kind": kind,
+                "sha256": digest.hexdigest(),
+                "size": received,
+                "enabled": True,
+                "added_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "members": members,
+            }
+            mods.append(record)
+            self._write_manifest(mods)
+            return self._describe_mod(record, archive_path)
+
+    def set_mod_enabled(self, mod_id: str, enabled: bool) -> dict[str, object]:
+        if not isinstance(enabled, bool):
+            raise ManagerError("The requested mod state is invalid.")
+        with self._lock:
+            self._validate_game_dir(self.game_dir)
+            self._require_game_closed()
+            mods = self._read_manifest()
+            record = self._find_mod(mods, mod_id)
+            archive = self._archive_path(record)
+            if not archive.is_file():
+                raise StateError(
+                    f"The manager's backup for {record['filename']} is missing; "
+                    "no game files were changed."
+                )
+            actual_hash, actual_size = _hash_file(archive)
+            if actual_hash != record["sha256"] or actual_size != record["size"]:
+                raise StateError(
+                    f"The manager's backup for {record['filename']} failed its integrity check."
+                )
+
+            if record["kind"] == MOD_KIND_BLUEPRINT:
+                self._check_logic_mods_path(create=enabled)
+            target_dir = self._mod_target_dir(record)
+            members = record["members"]
+            present: dict[str, Path] = {}
+            for member in members:
+                existing = self._existing_named_file(
+                    target_dir, str(member["name"])
+                )
+                if existing is None:
+                    continue
+                game_hash, game_size = _hash_file(existing)
+                if game_hash != member["sha256"] or game_size != member["size"]:
+                    raise ConflictError(
+                        f"{existing.name} is already present but differs from this mod. "
+                        "It was not overwritten."
+                    )
+                present[str(member["name"])] = existing
+
+            if enabled:
+                missing = [
+                    member for member in members if str(member["name"]) not in present
+                ]
+                if missing:
+                    with zipfile.ZipFile(archive) as package:
+                        for member in missing:
+                            destination = target_dir / str(member["name"])
+                            if member.get("stub"):
+                                self._copy_stream_to_game(
+                                    io.BytesIO(_STUB_PAK),
+                                    destination,
+                                    str(member["sha256"]),
+                                    int(member["size"]),
+                                )
+                            else:
+                                with package.open(str(member["entry"])) as member_stream:
+                                    self._copy_stream_to_game(
+                                        member_stream,
+                                        destination,
+                                        str(member["sha256"]),
+                                        int(member["size"]),
+                                    )
+                record["enabled"] = True
+            else:
+                for member in members:
+                    installed = present.get(str(member["name"]))
+                    if installed is not None:
+                        installed.unlink()
+                record["enabled"] = False
+
+            self._write_manifest(mods)
+            return self._describe_mod(record, archive)
+
+    def _describe_mod(
+        self,
+        record: dict[str, object],
+        archive: Path,
+    ) -> dict[str, object]:
+        members = record["members"]
+        target_dir = self._mod_target_dir(record)
+        installed_count = 0
+        conflict = False
+        for member in members:
+            installed = self._existing_named_file(
+                target_dir, str(member["name"])
+            )
+            if installed is None:
+                continue
+            installed_count += 1
+            if installed.stat().st_size != member["size"]:
+                conflict = True
+        return {
+            "id": record["id"],
+            "filename": record["filename"],
+            "stem": record["stem"],
+            "kind": record["kind"],
+            "size": record["size"],
+            "enabled": bool(record["enabled"]),
+            "sha256": record["sha256"],
+            "backup_available": (
+                archive.is_file() and archive.stat().st_size == record["size"]
+            ),
+            "file_count": len(members),
+            "conflict": conflict,
+            "partial": 0 < installed_count < len(members),
+        }
+
+    def get_status(self) -> dict[str, object]:
+        with self._lock:
+            game_valid = (
+                self.game_dir.is_dir()
+                and self.game_executable.is_file()
+                and self.paks_dir.is_dir()
+            )
+            game_running: bool | None = None
+            game_check_error = None
+            if game_valid:
+                try:
+                    game_running = self._is_game_running()
+                except StateError as error:
+                    game_check_error = str(error)
+
+            mods = self._read_manifest()
+            listed_mods = []
+            managed_names: set[str] = set()
+            for record in mods:
+                for member in record["members"]:
+                    managed_names.add(str(member["name"]).casefold())
+                listed_mods.append(
+                    self._describe_mod(record, self._archive_path(record))
+                )
+
+            unmanaged = []
+            if self.logic_mods_dir.is_dir() and not self.logic_mods_dir.is_symlink():
+                unmanaged.extend(
+                    {"filename": path.name, "size": path.stat().st_size}
+                    for path in sorted(self.logic_mods_dir.iterdir(), key=lambda item: item.name.casefold())
+                    if path.is_file()
+                    and path.suffix.casefold() in MOD_MEMBER_SUFFIXES
+                    and path.name.casefold() not in managed_names
+                )
+            if self.paks_dir.is_dir():
+                unmanaged.extend(
+                    {"filename": path.name, "size": path.stat().st_size}
+                    for path in sorted(self.paks_dir.iterdir(), key=lambda item: item.name.casefold())
+                    if path.is_file()
+                    and path.name.casefold().startswith(OVERRIDE_PREFIX.casefold())
+                    and Path(path.name).stem.casefold() not in {
+                        f"{OVERRIDE_PREFIX}{stem}".casefold() for stem in GAME_CONTAINER_STEMS
+                    }
+                    and path.suffix.casefold() in MOD_MEMBER_SUFFIXES
+                    and path.name.casefold() not in managed_names
+                )
+
+            binaries_dir = self.game_executable.parent
+            ue4ss_installed = game_valid and all(
+                (binaries_dir / relative).is_file() for relative in UE4SS_RELATIVE_FILES
+            )
+
+            return {
+                "game_dir": str(self.game_dir),
+                "game_valid": game_valid,
+                "game_executable": str(self.game_executable),
+                "paks_dir": str(self.paks_dir),
+                "logic_mods_dir": str(self.logic_mods_dir),
+                "logic_mods_exists": self.logic_mods_dir.is_dir(),
+                "game_running": game_running,
+                "game_check_error": game_check_error,
+                "mods": listed_mods,
+                "unmanaged_mods": unmanaged,
+                "loader_status": (
+                    "verified"
+                    if game_valid
+                    else "unknown"
+                ),
+                "ue4ss_installed": ue4ss_installed,
+                "warning": (
+                    "Mods load through UE4SS's Blueprint mod loader; that path is "
+                    "verified working on this game build. The manager deploys cooked "
+                    "IoStore mod packages (.utoc/.ucas plus a companion .pak) into "
+                    "LogicMods and never edits the game's original archives. It does "
+                    "not install UE4SS for you."
+                    if ue4ss_installed
+                    else "UE4SS is not detected in the game's Win64 folder. Mods are "
+                    "staged safely, but nothing will load until UE4SS (with "
+                    "BPModLoaderMod) is installed there. The manager never edits the "
+                    "game's original archives."
+                ),
+            }
+
+
+class ManagerRequestHandler(SimpleHTTPRequestHandler):
+    server_version = "GZProModManager/0.1"
+    manager: ModManager
+
+    def __init__(self, *args: object, manager: ModManager, **kwargs: object) -> None:
+        self.manager = manager
+        super().__init__(*args, directory=str(WEB_DIRECTORY), **kwargs)
+
+    def end_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+        self.send_header("Referrer-Policy", "no-referrer")
+        super().end_headers()
+
+    def _send_json(self, value: object, status: int = 200) -> None:
+        payload = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _send_manager_error(self, error: ManagerError) -> None:
+        self._send_json({"error": str(error)}, error.status_code)
+
+    def _local_origin(self) -> bool:
+        origin = self.headers.get("Origin")
+        if not origin:
+            return False
+        try:
+            parsed = urlsplit(origin)
+            origin_port = parsed.port
+        except ValueError:
+            return False
+        return (
+            parsed.scheme == "http"
+            and parsed.hostname in {"127.0.0.1", "localhost"}
+            and origin_port == self.server.server_port
+        )
+
+    def _handle_request_error(self, error: Exception) -> None:
+        if isinstance(error, ManagerError):
+            self._send_manager_error(error)
+            return
+        self.log_error("Unhandled request error: %s", error)
+        self._send_json({"error": "The request failed. Check the manager terminal for details."}, 500)
+
+    def do_GET(self) -> None:
+        if self.path == "/api/status":
+            try:
+                self._send_json(self.manager.get_status())
+            except (ManagerError, OSError) as error:
+                self._handle_request_error(error)
+            return
+        if self.path.startswith("/api/"):
+            self._send_json({"error": "Unknown API endpoint."}, 404)
+            return
+        super().do_GET()
+
+    def do_POST(self) -> None:
+        if not self._local_origin():
+            self.close_connection = True
+            self._send_json({"error": "Requests must come from this local manager page."}, 403)
+            return
+        try:
+            if self.path == "/api/game-dir":
+                self._handle_game_dir()
+                return
+            if self.path == "/api/mods":
+                self._handle_mod_upload()
+                return
+            match = re.fullmatch(r"/api/mods/([0-9a-f]{32})/(enable|disable)", self.path)
+            if match:
+                result = self.manager.set_mod_enabled(
+                    match.group(1),
+                    enabled=match.group(2) == "enable",
+                )
+                self._send_json(result)
+                return
+            self._send_json({"error": "Unknown API endpoint."}, 404)
+        except (ManagerError, OSError, ValueError) as error:
+            self.close_connection = True
+            self._handle_request_error(error)
+
+    def _read_json_body(self) -> dict[str, object]:
+        length = self._content_length()
+        if length > 16 * 1024:
+            raise ManagerError("The settings request is too large.")
+        try:
+            result = json.loads(self.rfile.read(length))
+        except json.JSONDecodeError as error:
+            raise ManagerError("The settings request is not valid JSON.") from error
+        if not isinstance(result, dict):
+            raise ManagerError("The settings request is invalid.")
+        return result
+
+    def _content_length(self) -> int:
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            raise ManagerError("The request is missing its content length.")
+        try:
+            length = int(raw_length)
+        except ValueError as error:
+            raise ManagerError("The request content length is invalid.") from error
+        if length < 0:
+            raise ManagerError("The request content length is invalid.")
+        return length
+
+    def _handle_game_dir(self) -> None:
+        if self.headers.get_content_type() != "application/json":
+            raise ManagerError("The settings request must use JSON.")
+        body = self._read_json_body()
+        game_dir = body.get("game_dir")
+        if not isinstance(game_dir, str):
+            raise ManagerError("Choose the game's installation folder.")
+        self._send_json(self.manager.set_game_dir(game_dir))
+
+    def _handle_mod_upload(self) -> None:
+        if self.headers.get_content_type() != "application/octet-stream":
+            raise ManagerError("Upload a single .zip mod package.")
+        length = self._content_length()
+        if length > MAX_MOD_SIZE:
+            raise ManagerError("That package exceeds the 8 GiB upload limit.")
+        filename = unquote(self.headers.get("X-Mod-Name", ""))
+        kind = unquote(self.headers.get("X-Mod-Kind", MOD_KIND_OVERRIDE))
+        try:
+            result = self.manager.install_mod(self.rfile, filename, length, kind)
+        except ManagerError:
+            self.close_connection = True
+            raise
+        self._send_json(result, 201)
+
+    def log_message(self, format_string: str, *args: object) -> None:
+        sys.stderr.write(
+            f"[{self.log_date_time_string()}] {self.address_string()} "
+            f"{format_string % args}\n"
+        )
+
+
+def create_server(manager: ModManager, port: int = 8766) -> ThreadingHTTPServer:
+    def handler_factory(*args: object, **kwargs: object) -> ManagerRequestHandler:
+        return ManagerRequestHandler(*args, manager=manager, **kwargs)
+
+    server = ThreadingHTTPServer(("127.0.0.1", port), handler_factory)
+    server.daemon_threads = True
+    return server
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Local, reversible GZPro mod staging tool.")
+    parser.add_argument(
+        "--game-dir",
+        type=Path,
+        help="Godzilla Remastered install folder (defaults to the standard Steam path).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=0,
+        help="Local port to use (default: let Windows choose an available port).",
+    )
+    parser.add_argument("--no-browser", action="store_true")
+    args = parser.parse_args()
+
+    try:
+        manager = ModManager(game_dir=args.game_dir)
+        server = create_server(manager, args.port)
+    except (OSError, ManagerError) as error:
+        print(f"Could not start the mod manager: {error}", file=sys.stderr)
+        return 1
+
+    address = f"http://127.0.0.1:{server.server_port}/"
+    print(f"GZPro Mod Manager is running at {address}", flush=True)
+    print("Keep this window open while using the manager. Press Ctrl+C to stop.", flush=True)
+    if not args.no_browser:
+        webbrowser.open(address)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopping GZPro Mod Manager.")
+    finally:
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

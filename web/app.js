@@ -1,0 +1,208 @@
+const state = { status: null, busy: false };
+const byId = (id) => document.getElementById(id);
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[character]);
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+}
+
+function setMessage(message, isError = false) {
+  const element = byId("action-message");
+  element.textContent = message;
+  element.classList.toggle("error", isError);
+}
+
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || `Request failed (${response.status}).`);
+  return result;
+}
+
+function renderStatus(status) {
+  state.status = status;
+  byId("game-dir").value = status.game_dir;
+  byId("compatibility-warning").textContent = status.warning;
+
+  const installStatus = byId("install-status");
+  if (!status.game_valid) {
+    installStatus.textContent = "Game install not found. Enter the folder that contains GZPro\\Binaries and GZPro\\Content.";
+    installStatus.classList.add("error");
+  } else if (status.game_check_error) {
+    installStatus.textContent = status.game_check_error;
+    installStatus.classList.add("error");
+  } else if (status.game_running) {
+    installStatus.textContent = "The game is running. Close it before enabling, disabling, or importing a mod.";
+    installStatus.classList.add("error");
+  } else {
+    const loader = status.ue4ss_installed ? "UE4SS detected" : "UE4SS not detected — mods will not load without it";
+    installStatus.textContent = `Ready · ${loader} · ${status.logic_mods_exists ? "LogicMods folder found" : "LogicMods folder will be created on import"}`;
+    installStatus.classList.toggle("error", !status.ue4ss_installed);
+  }
+
+  const modsElement = byId("mods");
+  if (!status.mods.length) {
+    modsElement.innerHTML = `<p class="empty-state">No mods are managed yet.</p>`;
+  } else {
+    modsElement.innerHTML = status.mods.map((mod) => {
+      const stateLabel = mod.conflict ? "File changed outside the manager" : (mod.enabled ? "Enabled" : "Disabled");
+      const actionLabel = mod.enabled ? "Disable" : "Enable";
+      const disabled = state.busy || !status.game_valid || status.game_running || status.game_check_error || mod.conflict || !mod.backup_available;
+      const kindLabel = mod.kind === "blueprint" ? "Blueprint · LogicMods" : "Asset override · Paks";
+      return `<article class="mod-card">
+        <div class="mod-info">
+          <strong>${escapeHtml(mod.stem || mod.filename)}</strong>
+          <span>${formatSize(mod.size)} · ${mod.file_count || 1} files · ${kindLabel} · ${escapeHtml(stateLabel)}</span>
+          <small>SHA-256 ${escapeHtml(mod.sha256.slice(0, 16))}… · backup ${mod.backup_available ? "available" : "missing"}</small>
+        </div>
+        <button class="button ${mod.enabled ? "button-secondary" : "button-primary"}" data-mod-id="${escapeHtml(mod.id)}" data-next-state="${mod.enabled ? "disable" : "enable"}" ${disabled ? "disabled" : ""}>${actionLabel}</button>
+      </article>`;
+    }).join("");
+    modsElement.querySelectorAll("button[data-mod-id]").forEach((button) => {
+      button.addEventListener("click", () => changeModState(button.dataset.modId, button.dataset.nextState));
+    });
+  }
+
+  const unmanaged = byId("unmanaged");
+  unmanaged.innerHTML = status.unmanaged_mods.length
+    ? `<h3>Existing, unmanaged mod files</h3><p class="muted">These .pak/.utoc/.ucas files were not imported by this manager and will not be changed.</p>
+      <ul>${status.unmanaged_mods.map((mod) => `<li>${escapeHtml(mod.filename)} <span>${formatSize(mod.size)}</span></li>`).join("")}</ul>`
+    : "";
+  byId("mod-file").disabled = state.busy || !status.game_valid || Boolean(status.game_running) || Boolean(status.game_check_error);
+  byId("refresh").disabled = state.busy;
+}
+
+async function refreshStatus() {
+  try {
+    renderStatus(await requestJson("/api/status"));
+  } catch (error) {
+    setMessage(`Could not read manager status: ${error.message}`, true);
+  }
+}
+
+function uploadFile(file, kind) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", "/api/mods");
+    request.setRequestHeader("Content-Type", "application/octet-stream");
+    request.setRequestHeader("X-Mod-Name", encodeURIComponent(file.name));
+    request.setRequestHeader("X-Mod-Kind", kind);
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        byId("upload-progress").value = Math.round((event.loaded / event.total) * 100);
+      }
+    };
+    request.onload = () => {
+      let result;
+      try {
+        result = JSON.parse(request.responseText);
+      } catch {
+        reject(new Error("The manager returned an invalid response."));
+        return;
+      }
+      if (request.status < 200 || request.status >= 300) {
+        reject(new Error(result.error || `Upload failed (${request.status}).`));
+        return;
+      }
+      resolve(result);
+    };
+    request.onerror = () => reject(new Error("Upload failed. Check that the manager is still running."));
+    request.send(file);
+  });
+}
+
+async function importFile(file) {
+  if (!file) return;
+  if (!file.name.toLocaleLowerCase().endsWith(".zip")) {
+    setMessage("Mods install from a .zip package holding the cooked .utoc and .ucas files. A raw WAV or loose Unreal asset cannot be dropped in directly.", true);
+    return;
+  }
+  if (!state.status?.game_valid || state.status.game_running || state.status.game_check_error) {
+    setMessage("The game install must be valid and the game must be closed before importing.", true);
+    return;
+  }
+  const kind = document.querySelector('input[name="mod-kind"]:checked')?.value || "override";
+  const target = kind === "blueprint" ? "the game's LogicMods folder" : "the game's Paks folder as GZPro-" + file.name.replace(/\.zip$/i, "") + ".*";
+  if (!window.confirm(
+    `Deploy ${file.name} into ${target}? The manager keeps a hash-checked backup and never overwrites existing files.${kind === "blueprint" ? " Loading it in-game requires UE4SS." : ""}`
+  )) return;
+  state.busy = true;
+  byId("upload-progress").hidden = false;
+  byId("upload-progress").value = 0;
+  setMessage(`Importing ${file.name}…`);
+  renderStatus(state.status);
+  try {
+    const mod = await uploadFile(file, kind);
+    const note = mod.kind === "blueprint"
+      ? "UE4SS loads it the next time the game starts."
+      : "It overrides the game's original assets the next time the game starts.";
+    setMessage(`${mod.stem || mod.filename} was deployed (${mod.file_count} files). ${note}`);
+  } catch (error) {
+    setMessage(`Import failed: ${error.message}`, true);
+  } finally {
+    state.busy = false;
+    byId("upload-progress").hidden = true;
+    byId("mod-file").value = "";
+    await refreshStatus();
+  }
+}
+
+async function changeModState(modId, action) {
+  if (!modId || !["enable", "disable"].includes(action)) return;
+  const verb = action === "disable" ? "disable" : "enable";
+  if (!window.confirm(`Close the game, then ${verb} this mod? The manager will not overwrite another file.`)) return;
+  state.busy = true;
+  setMessage(`${verb === "disable" ? "Disabling" : "Enabling"} mod…`);
+  renderStatus(state.status);
+  try {
+    await requestJson(`/api/mods/${encodeURIComponent(modId)}/${action}`, { method: "POST" });
+    setMessage(`Mod ${verb}d. The saved backup was kept.`);
+  } catch (error) {
+    setMessage(`Could not ${verb} mod: ${error.message}`, true);
+  } finally {
+    state.busy = false;
+    await refreshStatus();
+  }
+}
+
+byId("mod-file").addEventListener("change", (event) => importFile(event.target.files[0]));
+byId("refresh").addEventListener("click", refreshStatus);
+byId("game-dir-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setMessage("Checking the selected game folder…");
+  try {
+    renderStatus(await requestJson("/api/game-dir", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ game_dir: byId("game-dir").value })
+    }));
+    setMessage("Game folder selected. No game files were changed.");
+  } catch (error) {
+    setMessage(`Could not select game folder: ${error.message}`, true);
+  }
+});
+
+const dropZone = byId("drop-zone");
+for (const eventName of ["dragenter", "dragover"]) {
+  dropZone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    dropZone.classList.add("dragging");
+  });
+}
+for (const eventName of ["dragleave", "drop"]) {
+  dropZone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    dropZone.classList.remove("dragging");
+  });
+}
+dropZone.addEventListener("drop", (event) => importFile(event.dataTransfer.files[0]));
+
+refreshStatus();
