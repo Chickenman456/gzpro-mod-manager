@@ -147,6 +147,16 @@ class ModManagerTests(unittest.TestCase):
             ["TestMod.utoc", "TestMod.ucas", "TestMod.pak"],
         )
 
+    def test_ignores_root_level_install_instructions(self) -> None:
+        members = default_members()
+        members["INSTALL.txt"] = b"Installation instructions"
+        members["Installation.md"] = b"More installation instructions"
+        payload = make_package(members)
+
+        mod = self.install(payload=payload)
+
+        self.assertEqual(mod["file_count"], 3)
+
     def test_still_rejects_nested_documentation_files(self) -> None:
         payload = make_package({
             **default_members(),
