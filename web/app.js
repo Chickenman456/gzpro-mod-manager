@@ -115,6 +115,7 @@ function uploadFile(file, kind) {
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         byId("upload-progress").value = Math.round((event.loaded / event.total) * 100);
+          if (!byId("sound-upload-progress").hidden) byId("sound-upload-progress").value = Math.round((event.loaded / event.total) * 100);
       }
     };
     request.onload = () => {
