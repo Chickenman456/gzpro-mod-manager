@@ -180,6 +180,19 @@ class ModManagerTests(unittest.TestCase):
         with self.assertRaises(ManagerError):
             self.install(payload=nested)
 
+    def test_info_and_thumb_metadata_allow_dot_slash_zip_prefix(self) -> None:
+        members = default_members()
+        members["./INFO.txt"] = b"Metadata with a ZIP root prefix"
+        members["./THUMB.png"] = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII="
+        )
+
+        mod = self.install(payload=make_package(members))
+
+        self.assertEqual(mod["description"], "Metadata with a ZIP root prefix")
+        self.assertTrue(str(mod["thumbnail"]).startswith("data:image/png;base64,"))
+        self.assertEqual(mod["file_count"], 3)
+
     def test_ignores_root_level_documentation_files(self) -> None:
         members = default_members()
         members["README.txt"] = b"Installation instructions"
