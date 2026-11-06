@@ -73,8 +73,8 @@ function renderStatus(status) {
 
   const unmanaged = byId("unmanaged");
   unmanaged.innerHTML = status.unmanaged_mods.length
-    ? `<h3>Existing, unmanaged mod files</h3><p class="muted">These .pak/.utoc/.ucas files were not imported by this manager and will not be changed.</p>
-      <ul>${status.unmanaged_mods.map((mod) => `<li>${escapeHtml(mod.filename)} <span>${formatSize(mod.size)}</span></li>`).join("")}</ul>`
+    ? `<h3>Manually installed mod files</h3><p class="muted">Detected .pak/.utoc/.ucas files that were not imported by this manager. They are listed for reference and will not be changed.</p>
+      <ul>${status.unmanaged_mods.map((mod) => `<li>${escapeHtml(mod.filename)} <span>${escapeHtml(mod.location)} · ${formatSize(mod.size)}</span></li>`).join("")}</ul>`
     : "";
   byId("mod-file").disabled = state.busy || !status.game_valid || Boolean(status.game_running) || Boolean(status.game_check_error);
   byId("refresh").disabled = state.busy;
