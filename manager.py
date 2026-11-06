@@ -42,7 +42,7 @@ MOD_KIND_OVERRIDE = "override"
 MOD_KINDS = frozenset({MOD_KIND_BLUEPRINT, MOD_KIND_OVERRIDE})
 OVERRIDE_PREFIX = "GZPro-"
 # The game's own container files; an override mod must never collide with them.
-GAME_CONTAINER_STEMS = frozenset({"windows"})
+GAME_CONTAINER_STEMS = frozenset({"windows", "gzpro-windows", "global"})
 UE4SS_RELATIVE_FILES = (
     Path("dwmapi.dll"),
     Path("ue4ss") / "UE4SS.dll",
