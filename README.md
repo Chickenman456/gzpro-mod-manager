@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="gzprologo.png" alt="GZPro Mod Manager" width="420">
+</p>
+
 # GZPro Mod Manager
 
 A small, local-only Windows tool for safely staging pre-cooked `.pak` mods for **Godzilla: Destroy All Monsters Melee Remastered**.
