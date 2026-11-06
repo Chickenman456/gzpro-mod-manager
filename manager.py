@@ -716,6 +716,95 @@ class ModManager:
             "partial": 0 < installed_count < len(members),
         }
 
+    def adopt_unmanaged_mod(self, location: str, stem: str) -> dict[str, object]:
+        """Back up and register an existing loose mod without changing its game files."""
+        if location not in {"Paks", LOGIC_MODS_DIRECTORY}:
+            raise ManagerError("Choose a valid mod location.")
+        stem = _safe_mod_stem(stem)
+        if len(stem) > 124:
+            raise ManagerError("That mod name is too long to manage safely.")
+
+        with self._lock:
+            self._validate_game_dir(self.game_dir)
+            self._require_game_closed()
+            if location == LOGIC_MODS_DIRECTORY:
+                self._check_logic_mods_path(create=False)
+                target_dir = self.logic_mods_dir
+                kind = MOD_KIND_BLUEPRINT
+            else:
+                target_dir = self.paks_dir
+                kind = MOD_KIND_OVERRIDE
+                if stem.casefold() in GAME_CONTAINER_STEMS:
+                    raise ManagerError("The game's own container files cannot be adopted.")
+
+            mods = self._read_manifest()
+            managed_names = {
+                str(member["name"]).casefold()
+                for record in mods
+                for member in record["members"]
+            }
+            sources = [
+                path for path in sorted(target_dir.iterdir(), key=lambda item: item.name.casefold())
+                if path.is_file()
+                and not path.is_symlink()
+                and path.suffix.casefold() in MOD_MEMBER_SUFFIXES
+                and path.stem.casefold() == stem.casefold()
+            ]
+            if not sources:
+                raise ManagerError("No matching loose mod files were found. Refresh the list and try again.")
+            if any(path.name.casefold() in managed_names for path in sources):
+                raise ConflictError("One or more files are already managed.")
+            if any(str(record["stem"]).casefold() == stem.casefold() and record["kind"] == kind for record in mods):
+                raise ConflictError("A mod with this name is already in the manager.")
+
+            members: list[dict[str, object]] = []
+            total_size = 0
+            for source in sources:
+                digest, size = _hash_file(source)
+                if size <= 0:
+                    raise ManagerError(f"{source.name} is empty and cannot be adopted.")
+                total_size += size
+                if total_size > MAX_MOD_SIZE:
+                    raise ManagerError("These files exceed the manager's 8 GiB backup limit.")
+                members.append({
+                    "entry": source.name,
+                    "name": source.name,
+                    "sha256": digest,
+                    "size": size,
+                })
+
+            self.archive_dir.mkdir(parents=True, exist_ok=True)
+            mod_id = uuid.uuid4().hex
+            archive_path = self.archive_dir / f"{mod_id}.zip"
+            try:
+                with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as package:
+                    for source, member in zip(sources, members):
+                        package.write(source, arcname=str(member["entry"]))
+                        current_hash, current_size = _hash_file(source)
+                        if current_hash != member["sha256"] or current_size != member["size"]:
+                            raise ConflictError(
+                                f"{source.name} changed while it was being backed up. No game files were changed."
+                            )
+                archive_hash, archive_size = _hash_file(archive_path)
+                record: dict[str, object] = {
+                    "id": mod_id,
+                    "filename": f"{stem}.zip",
+                    "stem": stem,
+                    "kind": kind,
+                    "sha256": archive_hash,
+                    "size": archive_size,
+                    "enabled": True,
+                    "added_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    "members": members,
+                }
+                mods.append(record)
+                self._write_manifest(mods)
+            except Exception:
+                archive_path.unlink(missing_ok=True)
+                raise
+
+            return self._describe_mod(record, archive_path)
+
     def get_status(self) -> dict[str, object]:
         with self._lock:
             game_valid = (
@@ -741,32 +830,45 @@ class ModManager:
                     self._describe_mod(record, self._archive_path(record))
                 )
 
-            unmanaged = []
+            unmanaged_files = []
             if self.logic_mods_dir.is_dir() and not self.logic_mods_dir.is_symlink():
-                unmanaged.extend(
-                    {
-                        "filename": path.name,
-                        "size": path.stat().st_size,
-                        "location": LOGIC_MODS_DIRECTORY,
-                    }
+                unmanaged_files.extend(
+                    (path, LOGIC_MODS_DIRECTORY)
                     for path in sorted(self.logic_mods_dir.iterdir(), key=lambda item: item.name.casefold())
                     if path.is_file()
+                    and not path.is_symlink()
                     and path.suffix.casefold() in MOD_MEMBER_SUFFIXES
                     and path.name.casefold() not in managed_names
                 )
             if self.paks_dir.is_dir():
-                unmanaged.extend(
-                    {
-                        "filename": path.name,
-                        "size": path.stat().st_size,
-                        "location": "Paks",
-                    }
+                unmanaged_files.extend(
+                    (path, "Paks")
                     for path in sorted(self.paks_dir.iterdir(), key=lambda item: item.name.casefold())
                     if path.is_file()
+                    and not path.is_symlink()
                     and path.suffix.casefold() in MOD_MEMBER_SUFFIXES
-                    and Path(path.name).stem.casefold() not in GAME_CONTAINER_STEMS
+                    and path.stem.casefold() not in GAME_CONTAINER_STEMS
                     and path.name.casefold() not in managed_names
                 )
+
+            unmanaged_by_group: dict[tuple[str, str], dict[str, object]] = {}
+            for path, location in unmanaged_files:
+                key = (location, path.stem.casefold())
+                group = unmanaged_by_group.setdefault(
+                    key,
+                    {
+                        "stem": path.stem,
+                        "location": location,
+                        "files": [],
+                        "size": 0,
+                    },
+                )
+                group["files"].append(path.name)
+                group["size"] += path.stat().st_size
+            unmanaged = sorted(
+                unmanaged_by_group.values(),
+                key=lambda group: (str(group["location"]).casefold(), str(group["stem"]).casefold()),
+            )
 
             binaries_dir = self.game_executable.parent
             ue4ss_installed = game_valid and all(
@@ -876,6 +978,9 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
             if self.path == "/api/mods":
                 self._handle_mod_upload()
                 return
+            if self.path == "/api/mods/adopt":
+                self._handle_mod_adopt()
+                return
             match = re.fullmatch(r"/api/mods/([0-9a-f]{32})/(enable|disable)", self.path)
             if match:
                 result = self.manager.set_mod_enabled(
@@ -921,6 +1026,16 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
         if not isinstance(game_dir, str):
             raise ManagerError("Choose the game's installation folder.")
         self._send_json(self.manager.set_game_dir(game_dir))
+
+    def _handle_mod_adopt(self) -> None:
+        if self.headers.get_content_type() != "application/json":
+            raise ManagerError("The adopt request must use JSON.")
+        body = self._read_json_body()
+        location = body.get("location")
+        stem = body.get("stem")
+        if not isinstance(location, str) or not isinstance(stem, str):
+            raise ManagerError("Choose a detected mod group to adopt.")
+        self._send_json(self.manager.adopt_unmanaged_mod(location, stem), 201)
 
     def _handle_mod_upload(self) -> None:
         if self.headers.get_content_type() != "application/octet-stream":
