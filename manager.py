@@ -682,6 +682,50 @@ class ModManager:
             self._write_manifest(mods)
             return self._describe_mod(record, archive)
 
+    def delete_mod(self, mod_id: str) -> dict[str, object]:
+        """Remove a managed mod and its backup, but only remove verified game files."""
+        with self._lock:
+            self._validate_game_dir(self.game_dir)
+            self._require_game_closed()
+            mods = self._read_manifest()
+            record = self._find_mod(mods, mod_id)
+            archive = self._archive_path(record)
+            if not archive.is_file():
+                raise StateError(
+                    f"The manager's backup for {record['filename']} is missing; "
+                    "the mod was not deleted."
+                )
+            actual_hash, actual_size = _hash_file(archive)
+            if actual_hash != record["sha256"] or actual_size != record["size"]:
+                raise StateError(
+                    f"The manager's backup for {record['filename']} failed its integrity check; "
+                    "the mod was not deleted."
+                )
+
+            if record["kind"] == MOD_KIND_BLUEPRINT:
+                self._check_logic_mods_path(create=False)
+            target_dir = self._mod_target_dir(record)
+            installed_files: list[Path] = []
+            for member in record["members"]:
+                installed = self._existing_named_file(target_dir, str(member["name"]))
+                if installed is None:
+                    continue
+                game_hash, game_size = _hash_file(installed)
+                if game_hash != member["sha256"] or game_size != member["size"]:
+                    raise ConflictError(
+                        f"{installed.name} was changed outside the manager. "
+                        "It was left untouched, and the mod was not deleted."
+                    )
+                installed_files.append(installed)
+
+            for installed in installed_files:
+                installed.unlink()
+
+            remaining_mods = [item for item in mods if item["id"] != mod_id]
+            self._write_manifest(remaining_mods)
+            archive.unlink(missing_ok=True)
+            return {"deleted": True, "stem": record["stem"]}
+
     def _describe_mod(
         self,
         record: dict[str, object],
@@ -980,6 +1024,10 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
                 return
             if self.path == "/api/mods/adopt":
                 self._handle_mod_adopt()
+                return
+            delete_match = re.fullmatch(r"/api/mods/([0-9a-f]{32})/delete", self.path)
+            if delete_match:
+                self._send_json(self.manager.delete_mod(delete_match.group(1)))
                 return
             match = re.fullmatch(r"/api/mods/([0-9a-f]{32})/(enable|disable)", self.path)
             if match:
