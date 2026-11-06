@@ -135,6 +135,18 @@ def _is_package_document(name: str) -> bool:
         flags=re.IGNORECASE,
     ) is not None
 
+def _is_package_metadata(name: str) -> bool:
+    """Identify optional launcher metadata so it can never be deployed as a game file."""
+    if Path(name).name != name or "/" in name or chr(92) in name:
+        return False
+    return (
+        name.casefold() == "info.txt"
+        or (
+            Path(name).stem.casefold() == "thumb"
+            and Path(name).suffix.casefold() in MOD_THUMBNAIL_SUFFIXES
+        )
+    )
+
 
 def _safe_member_name(name: str) -> str:
     if (
@@ -475,7 +487,7 @@ class ModManager:
 
                 cooked_infos = [
                     info for info in infos
-                    if info not in info_entries and info not in thumb_entries
+                    if not _is_package_metadata(info.filename)
                     and not _is_package_document(info.filename)
                 ]
                 if not cooked_infos:
