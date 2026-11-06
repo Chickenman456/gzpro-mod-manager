@@ -132,6 +132,31 @@ class ModManagerTests(unittest.TestCase):
         self.assertEqual(deployed[0].read_bytes(), b"cooked toc")
         self.assertTrue(enabled["enabled"])
 
+    def test_delete_removes_verified_installed_files_backup_and_manifest_entry(self) -> None:
+        mod = self.install()
+        deployed = self.deployed()
+        backup = self.manager.archive_dir / f"{mod['id']}.zip"
+
+        result = self.manager.delete_mod(str(mod["id"]))
+
+        self.assertEqual(result, {"deleted": True, "stem": "TestMod"})
+        self.assertTrue(all(not path.exists() for path in deployed))
+        self.assertFalse(backup.exists())
+        self.assertEqual(self.manager.get_status()["mods"], [])
+
+    def test_delete_refuses_to_remove_files_changed_outside_manager(self) -> None:
+        mod = self.install()
+        changed = self.deployed()[1]
+        changed.write_bytes(b"changed outside manager")
+        backup = self.manager.archive_dir / f"{mod['id']}.zip"
+
+        with self.assertRaises(ConflictError):
+            self.manager.delete_mod(str(mod["id"]))
+
+        self.assertEqual(changed.read_bytes(), b"changed outside manager")
+        self.assertTrue(backup.is_file())
+        self.assertEqual(len(self.manager.get_status()["mods"]), 1)
+
     def test_ignores_root_level_documentation_files(self) -> None:
         members = default_members()
         members["README.txt"] = b"Installation instructions"
@@ -390,6 +415,14 @@ class ModManagerHttpTests(unittest.TestCase):
         with self.post(f"/api/mods/{installed['id']}/enable") as response:
             self.assertTrue(json.load(response)["enabled"])
         self.assertEqual(game_copy.read_bytes(), b"cooked container")
+
+        with self.post(f"/api/mods/{installed['id']}/delete") as response:
+            self.assertTrue(json.load(response)["deleted"])
+        self.assertFalse(game_copy.exists())
+        self.assertFalse((logic_mods / "BrowserTest.utoc").exists())
+        self.assertFalse((logic_mods / "BrowserTest.pak").exists())
+        self.assertEqual(self.manager.get_status()["mods"], [])
+        self.assertFalse((self.manager.archive_dir / f"{installed['id']}.zip").exists())
 
     def test_upload_rejects_non_local_origin_before_writing_files(self) -> None:
         request = Request(
