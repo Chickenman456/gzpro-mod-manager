@@ -58,6 +58,7 @@ function renderStatus(status) {
       const stateLabel = mod.conflict ? "File changed outside the manager" : (mod.enabled ? "Enabled" : "Disabled");
       const actionLabel = mod.enabled ? "Disable" : "Enable";
       const disabled = state.busy || !status.game_valid || status.game_running || status.game_check_error || mod.conflict || !mod.backup_available;
+      const deleteDisabled = state.busy || !status.game_valid || status.game_running || status.game_check_error || !mod.backup_available;
       const kindLabel = mod.kind === "blueprint" ? "Blueprint · LogicMods" : "Asset override · Paks";
       return `<article class="mod-card">
         <div class="mod-info">
@@ -65,11 +66,17 @@ function renderStatus(status) {
           <span>${formatSize(mod.size)} · ${mod.file_count || 1} files · ${kindLabel} · ${escapeHtml(stateLabel)}</span>
           <small>SHA-256 ${escapeHtml(mod.sha256.slice(0, 16))}… · backup ${mod.backup_available ? "available" : "missing"}</small>
         </div>
-        <button class="button ${mod.enabled ? "button-secondary" : "button-primary"}" data-mod-id="${escapeHtml(mod.id)}" data-next-state="${mod.enabled ? "disable" : "enable"}" ${disabled ? "disabled" : ""}>${actionLabel}</button>
+        <div class="mod-actions">
+          <button class="button ${mod.enabled ? "button-secondary" : "button-primary"}" data-mod-id="${escapeHtml(mod.id)}" data-next-state="${mod.enabled ? "disable" : "enable"}" ${disabled ? "disabled" : ""}>${actionLabel}</button>
+          <button class="button button-danger" data-delete-mod="${escapeHtml(mod.id)}" ${deleteDisabled ? "disabled" : ""}>Delete</button>
+        </div>
       </article>`;
     }).join("");
     modsElement.querySelectorAll("button[data-mod-id]").forEach((button) => {
       button.addEventListener("click", () => changeModState(button.dataset.modId, button.dataset.nextState));
+    });
+    modsElement.querySelectorAll("button[data-delete-mod]").forEach((button) => {
+      button.addEventListener("click", () => deleteManagedMod(button.dataset.deleteMod));
     });
   }
 
@@ -194,6 +201,23 @@ async function adoptUnmanagedMod(location, stem) {
   }
 }
 
+async function deleteManagedMod(modId) {
+  const mod = state.status?.mods.find((item) => item.id === modId);
+  if (!mod) return;
+  if (!window.confirm(`Permanently delete ${mod.stem || mod.filename}? This removes its verified installed files, its manager backup, and its library entry. Files changed outside the manager will be left untouched and will block deletion.`)) return;
+  state.busy = true;
+  setMessage(`Deleting ${mod.stem || mod.filename}…`);
+  renderStatus(state.status);
+  try {
+    await requestJson(`/api/mods/${encodeURIComponent(modId)}/delete`, { method: "POST" });
+    setMessage(`${mod.stem || mod.filename} was deleted from the manager.`);
+  } catch (error) {
+    setMessage(`Could not delete mod: ${error.message}`, true);
+  } finally {
+    state.busy = false;
+    await refreshStatus();
+  }
+}
 async function changeModState(modId, action) {
   if (!modId || !["enable", "disable"].includes(action)) return;
   const verb = action === "disable" ? "disable" : "enable";
