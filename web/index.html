@@ -17,14 +17,14 @@
       <h1>Mod Manager</h1>
     </div>
     <div class="header-meta">
-      <span class="version-label">v1.0.0 · 2026-11-06</span>
+      <span class="version-label">v1.1.0 · 2026-11-06</span>
       <span class="local-badge">Local only</span>
     </div>
   </header>
 
   <main>
     <section class="notice notice-caution" aria-labelledby="status-title">
-      <h2 id="status-title">UE4SS required to load mods</h2>
+      <h2 id="status-title">Mod loading requirements</h2>
       <p id="compatibility-warning">Checking the game install…</p>
     </section>
 
@@ -77,7 +77,7 @@
 
     <footer>
       <p><strong>Reversible staging, not a patcher.</strong> The manager copies only into <code>GZPro\Content\Paks\LogicMods</code>. Disable removes only the manager's verified copies; its backup stays in your local app-data folder.</p>
-      <p>It never edits the game's original <code>.pak</code>, <code>.utoc</code>, or <code>.ucas</code> archives. Loading is handled by UE4SS's BPModLoaderMod — verified working on this game — which must be installed separately. A raw WAV must first be cooked into an IoStore mod package.</p>
+      <p>It never edits the game's original <code>.pak</code>, <code>.utoc</code>, or <code>.ucas</code> archives. Blueprint mod loading is handled by UE4SS's BPModLoaderMod, which must be installed separately. Asset override mods do not require UE4SS. A raw WAV must first be cooked into an IoStore mod package.</p>
     </footer>
   </main>
 </body>
