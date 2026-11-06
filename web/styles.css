@@ -26,7 +26,6 @@ body {
   background: #151820e8;
 }
 
-.brand-heading { min-width: 0; }
 .brand-logo { display: block; width: clamp(120px, 18vw, 210px); max-height: 90px; height: auto; object-fit: contain; }
 h1, h2, h3, p { margin-top: 0; }
 h1, h2, h3 {
