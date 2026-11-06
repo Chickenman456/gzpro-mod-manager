@@ -35,6 +35,7 @@ Cooked container files must share the same mod name and sit at the zip root. Roo
 - Accepts only `.zip` mod packages in the format above, ignoring common root-level documentation files; it does not inspect the cooked assets or confirm they were cooked for a compatible engine. A raw WAV or loose `.uasset` cannot be dropped in directly — cook it into a container first.
 - Keeps a SHA-256-checked backup of every package under `%LOCALAPPDATA%\GZProModManager`.
 - Can disable a managed mod only when every deployed file still matches its saved hash. Re-enabling refuses to overwrite a same-named file that differs.
+- Can permanently delete a managed mod and its backup. Deletion first verifies the backup and every installed file; if a file was changed outside the manager, it is left untouched and deletion is blocked.
 - Refuses enable/disable/import operations while `GZProSteam-Win64-Shipping.exe` is running.
 - Never edits or replaces the game's original `GZPro-Windows.*` or `global.*` archives, and refuses mod names that would collide with them. It does not install or enable UE4SS.
 - Detects loose `.pak`, `.utoc`, and `.ucas` files in `Paks` and `LogicMods`, groups matching names, and lets you adopt them. Adoption creates a verified backup without changing the installed files; adopted mods can then be disabled and re-enabled. Disable refuses to remove any file whose hash no longer matches the backup.
