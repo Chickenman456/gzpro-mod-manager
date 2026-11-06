@@ -437,7 +437,7 @@ class ModManager:
                 description = ""
                 if info_entries:
                     info = info_entries[0]
-                    if Path(info.filename).name != info.filename or "/" in info.filename or "\\\\" in info.filename:
+                    if Path(info.filename).name != info.filename or "/" in info.filename or "\\" in info.filename:
                         raise ManagerError("INFO.txt must be at the root of the mod zip.")
                     if info.file_size > MAX_INFO_SIZE:
                         raise ManagerError("INFO.txt must be 16 KB or smaller.")
@@ -459,8 +459,8 @@ class ModManager:
                     with package.open(thumb) as stream:
                         image_bytes = stream.read(MAX_THUMBNAIL_SIZE + 1)
                     signatures = (
-                        (".png", b"\\x89PNG\\r\\n\\x1a\\n", "image/png"),
-                        (".jpg", b"\\xff\\xd8\\xff", "image/jpeg"),
+                        (".png", b"\x89PNG\r\n\x1a\n", "image/png"),
+                        (".jpg", b"\xff\xd8\xff", "image/jpeg"),
                         (".jpeg", b"\\xff\\xd8\\xff", "image/jpeg"),
                         (".webp", b"RIFF", "image/webp"),
                     )
@@ -486,7 +486,7 @@ class ModManager:
                 total_size = 0
                 for info in cooked_infos:
                     name = info.filename
-                    if Path(name).name != name or "/" in name or "\\\\" in name:
+                    if Path(name).name != name or "/" in name or "\\" in name:
                         raise ManagerError("The package must contain only bare files, not folders.")
                     suffix = Path(name).suffix.casefold()
                     if suffix not in MOD_MEMBER_SUFFIXES:
