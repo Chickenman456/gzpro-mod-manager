@@ -744,7 +744,11 @@ class ModManager:
             unmanaged = []
             if self.logic_mods_dir.is_dir() and not self.logic_mods_dir.is_symlink():
                 unmanaged.extend(
-                    {"filename": path.name, "size": path.stat().st_size}
+                    {
+                        "filename": path.name,
+                        "size": path.stat().st_size,
+                        "location": LOGIC_MODS_DIRECTORY,
+                    }
                     for path in sorted(self.logic_mods_dir.iterdir(), key=lambda item: item.name.casefold())
                     if path.is_file()
                     and path.suffix.casefold() in MOD_MEMBER_SUFFIXES
@@ -752,14 +756,15 @@ class ModManager:
                 )
             if self.paks_dir.is_dir():
                 unmanaged.extend(
-                    {"filename": path.name, "size": path.stat().st_size}
+                    {
+                        "filename": path.name,
+                        "size": path.stat().st_size,
+                        "location": "Paks",
+                    }
                     for path in sorted(self.paks_dir.iterdir(), key=lambda item: item.name.casefold())
                     if path.is_file()
-                    and path.name.casefold().startswith(OVERRIDE_PREFIX.casefold())
-                    and Path(path.name).stem.casefold() not in {
-                        f"{OVERRIDE_PREFIX}{stem}".casefold() for stem in GAME_CONTAINER_STEMS
-                    }
                     and path.suffix.casefold() in MOD_MEMBER_SUFFIXES
+                    and Path(path.name).stem.casefold() not in GAME_CONTAINER_STEMS
                     and path.name.casefold() not in managed_names
                 )
 
