@@ -22,7 +22,7 @@ Mods install from a single `.zip` containing the cooked IoStore container:
 - `<ModName>.utoc` + `<ModName>.ucas` — required; the cooked container holding the mod's assets.
 - `<ModName>.pak` — optional companion. If the zip has no `.pak`, the manager deploys a tiny verified stub `.pak` instead: this game only mounts a container when a same-named `.pak` sits next to it. The stub is parsed but never mounted, so its contents never reach the game.
 
-All files in the zip must share the same mod name, must sit at the zip root, and no other file types are accepted.
+Cooked container files must share the same mod name and sit at the zip root. Root-level README, LICENSE, CHANGELOG, NOTICE, and CREDITS files are ignored; other unexpected files and nested folders are rejected.
 
 ### Two kinds of mods
 
@@ -32,7 +32,7 @@ All files in the zip must share the same mod name, must sit at the zip root, and
 
 ## Current scope and safety
 
-- Accepts only `.zip` mod packages in the format above; it does not inspect the cooked assets or confirm they were cooked for a compatible engine. A raw WAV or loose `.uasset` cannot be dropped in directly — cook it into a container first.
+- Accepts only `.zip` mod packages in the format above, ignoring common root-level documentation files; it does not inspect the cooked assets or confirm they were cooked for a compatible engine. A raw WAV or loose `.uasset` cannot be dropped in directly — cook it into a container first.
 - Keeps a SHA-256-checked backup of every package under `%LOCALAPPDATA%\GZProModManager`.
 - Can disable a managed mod only when every deployed file still matches its saved hash. Re-enabling refuses to overwrite a same-named file that differs.
 - Refuses enable/disable/import operations while `GZProSteam-Win64-Shipping.exe` is running.
