@@ -1,4 +1,4 @@
-const state = { status: null, busy: false };
+const state = { status: null, busy: false, soundPackage: null, audioPreviewUrl: null };
 const byId = (id) => document.getElementById(id);
 
 function escapeHtml(value) {
@@ -94,6 +94,7 @@ function renderStatus(status) {
   });
   byId("mod-file").disabled = state.busy || !status.game_valid || Boolean(status.game_running) || Boolean(status.game_check_error);
   byId("refresh").disabled = state.busy;
+  updateSoundInstallButton();
 }
 
 async function refreshStatus() {
@@ -245,3 +246,125 @@ for (const eventName of ["dragleave", "drop"]) {
 dropZone.addEventListener("drop", (event) => importFile(event.dataTransfer.files[0]));
 
 refreshStatus();
+
+
+function updateSoundInstallButton() {
+  const button = byId("sound-install");
+  if (!button) return;
+  const status = state.status;
+  button.disabled = state.busy || !state.soundPackage || !status?.game_valid ||
+    Boolean(status.game_running) || Boolean(status.game_check_error);
+}
+
+function setSoundPackage(file) {
+  if (!file) return;
+  if (!file.name.toLocaleLowerCase().endsWith(".zip")) {
+    byId("sound-package-details").textContent = "Choose a cooked .zip package. Loose WAV or Unreal asset files cannot be installed as a game mod.";
+    state.soundPackage = null;
+    updateSoundInstallButton();
+    return;
+  }
+  state.soundPackage = file;
+  const suggestedName = file.name.replace(/\.zip$/i, "");
+  byId("sound-mod-name").value = suggestedName;
+  byId("sound-package-details").textContent = `${file.name} · ${formatSize(file.size)} · ready for package validation`;
+  updateSoundInstallButton();
+}
+
+function setSoundPreview(file) {
+  if (!file) return;
+  const supported = /\.(wav|mp3|ogg|flac)$/i.test(file.name);
+  if (!supported) {
+    byId("sound-audio-details").textContent = "Choose a WAV, MP3, OGG, or FLAC audio file.";
+    return;
+  }
+  if (state.audioPreviewUrl) URL.revokeObjectURL(state.audioPreviewUrl);
+  state.audioPreviewUrl = URL.createObjectURL(file);
+  const player = byId("sound-audio-preview");
+  player.src = state.audioPreviewUrl;
+  player.hidden = false;
+  byId("sound-audio-details").textContent = `${file.name} · ${formatSize(file.size)} · preview only`;
+}
+
+async function installSoundPackage() {
+  const source = state.soundPackage;
+  if (!source) return;
+  const rawName = byId("sound-mod-name").value.trim() || source.name.replace(/\.zip$/i, "");
+  const safeName = rawName.replace(/\.zip$/i, "");
+  if (!safeName || safeName.length > 120 || /[<>:"|?*/\\\\]/.test(safeName) || /[. ]$/.test(safeName)) {
+    byId("sound-message").textContent = "Use a simple mod name without folders or Windows-reserved characters.";
+    byId("sound-message").classList.add("error");
+    return;
+  }
+  if (!state.status?.game_valid || state.status.game_running || state.status.game_check_error) {
+    byId("sound-message").textContent = "Select a valid game folder and close the game before installing.";
+    byId("sound-message").classList.add("error");
+    return;
+  }
+  if (!window.confirm(
+    `Package and install ${safeName} as an asset override? The manager will validate the cooked .utoc/.ucas package, create its normal backup, and refuse to overwrite existing files.`
+  )) return;
+
+  state.busy = true;
+  byId("sound-message").classList.remove("error");
+  byId("sound-message").textContent = `Packaging and installing ${safeName}…`;
+  byId("sound-upload-progress").hidden = false;
+  byId("sound-upload-progress").value = 0;
+  updateSoundInstallButton();
+  byId("mod-file").disabled = true;
+  byId("refresh").disabled = true;
+  try {
+    const renamed = new File([source], `${safeName}.zip`, { type: "application/zip" });
+    const mod = await uploadFile(renamed, "override");
+    byId("sound-message").textContent = `${mod.stem || mod.filename} was packaged and installed as an asset override. It is now listed in the Mod Library.`;
+    byId("sound-message").classList.remove("error");
+    state.soundPackage = null;
+    byId("sound-package-file").value = "";
+    byId("sound-package-details").textContent = "No cooked package selected.";
+    byId("sound-mod-name").value = "";
+  } catch (error) {
+    byId("sound-message").textContent = `Could not install sound mod: ${error.message}`;
+    byId("sound-message").classList.add("error");
+  } finally {
+    state.busy = false;
+    byId("sound-upload-progress").hidden = true;
+    await refreshStatus();
+    updateSoundInstallButton();
+  }
+}
+
+function setupDropZone(id, handler) {
+  const zone = byId(id);
+  for (const eventName of ["dragenter", "dragover"]) {
+    zone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      zone.classList.add("dragging");
+    });
+  }
+  for (const eventName of ["dragleave", "drop"]) {
+    zone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      zone.classList.remove("dragging");
+    });
+  }
+  zone.addEventListener("drop", (event) => handler(event.dataTransfer.files[0]));
+}
+
+function activateTab(name) {
+  const libraryActive = name === "library";
+  byId("tab-library").classList.toggle("active", libraryActive);
+  byId("tab-library").setAttribute("aria-selected", String(libraryActive));
+  byId("tab-sound").classList.toggle("active", !libraryActive);
+  byId("tab-sound").setAttribute("aria-selected", String(!libraryActive));
+  byId("panel-library").hidden = !libraryActive;
+  byId("panel-sound").hidden = libraryActive;
+}
+
+byId("tab-library").addEventListener("click", () => activateTab("library"));
+byId("tab-sound").addEventListener("click", () => activateTab("sound"));
+byId("sound-audio-file").addEventListener("change", (event) => setSoundPreview(event.target.files[0]));
+byId("sound-package-file").addEventListener("change", (event) => setSoundPackage(event.target.files[0]));
+byId("sound-mod-name").addEventListener("input", updateSoundInstallButton);
+byId("sound-install").addEventListener("click", installSoundPackage);
+setupDropZone("sound-audio-drop", setSoundPreview);
+setupDropZone("sound-package-drop", setSoundPackage);
