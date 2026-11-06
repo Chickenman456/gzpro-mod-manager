@@ -17,7 +17,7 @@
       <h1>Mod Manager</h1>
     </div>
     <div class="header-meta">
-      <span class="version-label">v1.2.0 · 2026-11-06</span>
+      <span class="version-label">v1.2.1 · 2026-11-06</span>
       <span class="local-badge">Local only</span>
     </div>
   </header>
@@ -43,12 +43,6 @@
       <p id="install-status" class="muted" role="status"></p>
     </section>
 
-    <div class="tab-bar" role="tablist" aria-label="Manager tools">
-      <button class="tab-button active" id="tab-library" type="button" role="tab" aria-selected="true" aria-controls="panel-library">Mod Library</button>
-      <button class="tab-button" id="tab-sound" type="button" role="tab" aria-selected="false" aria-controls="panel-sound">Sound Mod Creator</button>
-    </div>
-
-    <section class="tab-panel" id="panel-library" role="tabpanel" aria-labelledby="tab-library">
     <section class="panel" aria-labelledby="mods-title">
       <div class="section-heading">
         <div>
@@ -79,49 +73,6 @@
       <p id="action-message" class="message" role="status"></p>
       <div id="mods" class="mod-list"></div>
       <div id="unmanaged" class="unmanaged-list"></div>
-    </section>
-    </section>
-
-    <section class="tab-panel" id="panel-sound" role="tabpanel" aria-labelledby="tab-sound" hidden>
-      <section class="panel" aria-labelledby="sound-title">
-        <div class="section-heading">
-          <div>
-            <h2 id="sound-title">Sound Mod Creator</h2>
-            <p class="muted">Prepare and install a cooked sound replacement package. The game asset path must already be set inside the cooked package.</p>
-          </div>
-        </div>
-        <div class="sound-workflow">
-          <div class="sound-step">
-            <h3>1. Preview source audio (optional)</h3>
-            <label id="sound-audio-drop" class="drop-zone sound-drop-zone" for="sound-audio-file">
-              <input id="sound-audio-file" type="file" accept=".wav,.mp3,.ogg,.flac">
-              <span class="drop-icon" aria-hidden="true">♫</span>
-              <strong>Drop a WAV, MP3, OGG, or FLAC</strong>
-              <span>or click to choose an audio file</span>
-              <small>Preview only. The manager does not convert or cook raw audio into Unreal assets yet.</small>
-            </label>
-            <div id="sound-audio-details" class="muted" aria-live="polite">No audio selected.</div>
-            <audio id="sound-audio-preview" controls hidden></audio>
-          </div>
-          <div class="sound-step">
-            <h3>2. Add your cooked sound mod package</h3>
-            <label id="sound-package-drop" class="drop-zone sound-drop-zone" for="sound-package-file">
-              <input id="sound-package-file" type="file" accept=".zip,application/zip">
-              <span class="drop-icon" aria-hidden="true">↓</span>
-              <strong>Drop a cooked sound mod .zip</strong>
-              <span>or click to choose one</span>
-              <small>Must contain matching .utoc and .ucas files, with an optional .pak. The sound replacement must already be cooked for this game.</small>
-            </label>
-            <div id="sound-package-details" class="muted" aria-live="polite">No cooked package selected.</div>
-            <label class="sound-name-label" for="sound-mod-name">Mod name</label>
-            <input id="sound-mod-name" type="text" maxlength="120" placeholder="MySoundReplacement" autocomplete="off">
-            <button id="sound-install" class="button button-primary" type="button" disabled>Package and install sound mod</button>
-            <progress id="sound-upload-progress" max="100" value="0" hidden></progress>
-            <p class="muted sound-note">The manager packages the cooked container for installation as an asset override, with the normal backup and enable/disable controls. It does not repack or rename assets inside the Unreal container.</p>
-          </div>
-        </div>
-        <p id="sound-message" class="message" role="status"></p>
-      </section>
     </section>
 
     <footer>
