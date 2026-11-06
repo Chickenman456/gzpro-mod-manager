@@ -1,3 +1,4 @@
+# Build from master so fixes made after the workflow commit are included.
 name: Build Windows executable
 
 on:
