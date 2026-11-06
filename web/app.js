@@ -30,7 +30,9 @@ async function requestJson(url, options = {}) {
 function renderStatus(status) {
   state.status = status;
   byId("game-dir").value = status.game_dir;
-  byId("compatibility-warning").textContent = status.warning;
+  byId("compatibility-warning").innerHTML = status.ue4ss_installed
+    ? "UE4SS is installed. Blueprint mods can load through BPModLoaderMod. Asset override mods do not need UE4SS."
+    : 'UE4SS is only required for Blueprint mods. Asset override mods (music, textures, models) work without it. <a href="https://github.com/UE4SS-RE/RE-UE4SS/releases" target="_blank" rel="noopener noreferrer">Download UE4SS</a> for Blueprint mods.';
 
   const installStatus = byId("install-status");
   if (!status.game_valid) {
@@ -43,9 +45,9 @@ function renderStatus(status) {
     installStatus.textContent = "The game is running. Close it before enabling, disabling, or importing a mod.";
     installStatus.classList.add("error");
   } else {
-    const loader = status.ue4ss_installed ? "UE4SS detected" : "UE4SS not detected — mods will not load without it";
+    const loader = status.ue4ss_installed ? "UE4SS detected" : "UE4SS not installed · asset overrides still work";
     installStatus.textContent = `Ready · ${loader} · ${status.logic_mods_exists ? "LogicMods folder found" : "LogicMods folder will be created on import"}`;
-    installStatus.classList.toggle("error", !status.ue4ss_installed);
+    installStatus.classList.remove("error");
   }
 
   const modsElement = byId("mods");
