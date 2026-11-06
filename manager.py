@@ -452,7 +452,7 @@ class ModManager:
                 thumbnail = None
                 if thumb_entries:
                     thumb = thumb_entries[0]
-                    if Path(thumb.filename).name != thumb.filename or "/" in thumb.filename or "\\\\" in thumb.filename:
+                    if Path(thumb.filename).name != thumb.filename or "/" in thumb.filename or "\\" in thumb.filename:
                         raise ManagerError("The THUMB image must be at the root of the mod zip.")
                     if thumb.file_size <= 0 or thumb.file_size > MAX_THUMBNAIL_SIZE:
                         raise ManagerError("The THUMB image must be between 1 byte and 1 MB.")
