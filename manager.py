@@ -33,6 +33,9 @@ WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 MOD_MEMBER_SUFFIXES = frozenset({".pak", ".utoc", ".ucas"})
+MOD_THUMBNAIL_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp"})
+MAX_INFO_SIZE = 16 * 1024
+MAX_THUMBNAIL_SIZE = 1024 * 1024
 REQUIRED_MEMBER_SUFFIXES = frozenset({".utoc", ".ucas"})
 MOD_KIND_BLUEPRINT = "blueprint"
 MOD_KIND_OVERRIDE = "override"
@@ -413,42 +416,89 @@ class ModManager:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def _read_package_members(self, archive: Path) -> tuple[str, list[dict[str, object]]]:
+    def _read_package_members(
+        self, archive: Path
+    ) -> tuple[str, list[dict[str, object]], str, str | None]:
         try:
             with zipfile.ZipFile(archive) as package:
-                infos = [
-                    info
-                    for info in package.infolist()
-                    if not info.is_dir() and not _is_package_document(info.filename)
+                infos = [info for info in package.infolist() if not info.is_dir()]
+                info_entries = [
+                    info for info in infos
+                    if info.filename.casefold() == "info.txt"
                 ]
-                if not infos:
+                thumb_entries = [
+                    info for info in infos
+                    if Path(info.filename).stem.casefold() == "thumb"
+                    and Path(info.filename).suffix.casefold() in MOD_THUMBNAIL_SUFFIXES
+                ]
+                if len(info_entries) > 1 or len(thumb_entries) > 1:
+                    raise ManagerError("Include only one root-level INFO.txt and one THUMB image.")
+
+                description = ""
+                if info_entries:
+                    info = info_entries[0]
+                    if Path(info.filename).name != info.filename or "/" in info.filename or "\\\\" in info.filename:
+                        raise ManagerError("INFO.txt must be at the root of the mod zip.")
+                    if info.file_size > MAX_INFO_SIZE:
+                        raise ManagerError("INFO.txt must be 16 KB or smaller.")
+                    try:
+                        with package.open(info) as stream:
+                            description = stream.read(MAX_INFO_SIZE + 1).decode("utf-8-sig").strip()
+                    except UnicodeDecodeError as error:
+                        raise ManagerError("INFO.txt must be saved as UTF-8 text.") from error
+                    if len(description.encode("utf-8")) > MAX_INFO_SIZE:
+                        raise ManagerError("INFO.txt must be 16 KB or smaller.")
+
+                thumbnail = None
+                if thumb_entries:
+                    thumb = thumb_entries[0]
+                    if Path(thumb.filename).name != thumb.filename or "/" in thumb.filename or "\\\\" in thumb.filename:
+                        raise ManagerError("The THUMB image must be at the root of the mod zip.")
+                    if thumb.file_size <= 0 or thumb.file_size > MAX_THUMBNAIL_SIZE:
+                        raise ManagerError("The THUMB image must be between 1 byte and 1 MB.")
+                    with package.open(thumb) as stream:
+                        image_bytes = stream.read(MAX_THUMBNAIL_SIZE + 1)
+                    signatures = (
+                        (".png", b"\\x89PNG\\r\\n\\x1a\\n", "image/png"),
+                        (".jpg", b"\\xff\\xd8\\xff", "image/jpeg"),
+                        (".jpeg", b"\\xff\\xd8\\xff", "image/jpeg"),
+                        (".webp", b"RIFF", "image/webp"),
+                    )
+                    suffix = Path(thumb.filename).suffix.casefold()
+                    match = next((item for item in signatures if item[0] == suffix), None)
+                    valid_signature = bool(match and image_bytes.startswith(match[1]))
+                    if suffix == ".webp":
+                        valid_signature = valid_signature and image_bytes[8:12] == b"WEBP"
+                    if not valid_signature:
+                        raise ManagerError("THUMB must be a valid PNG, JPG, or WebP image with a matching file extension.")
+                    thumbnail = f"data:{match[2]};base64," + base64.b64encode(image_bytes).decode("ascii")
+
+                cooked_infos = [
+                    info for info in infos
+                    if info not in info_entries and info not in thumb_entries
+                    and not _is_package_document(info.filename)
+                ]
+                if not cooked_infos:
                     raise ManagerError("The package contains no cooked mod files.")
                 stem: str | None = None
                 suffixes: set[str] = set()
                 members: list[dict[str, object]] = []
                 total_size = 0
-                for info in infos:
+                for info in cooked_infos:
                     name = info.filename
-                    if Path(name).name != name or "/" in name or "\\" in name:
-                        raise ManagerError(
-                            "The package must contain only bare files, not folders."
-                        )
+                    if Path(name).name != name or "/" in name or "\\\\" in name:
+                        raise ManagerError("The package must contain only bare files, not folders.")
                     suffix = Path(name).suffix.casefold()
                     if suffix not in MOD_MEMBER_SUFFIXES:
                         raise ManagerError(
-                            f"Unsupported file in the package: {name}. A mod package "
-                            "holds only .utoc, .ucas, and an optional .pak."
+                            f"Unsupported file in the package: {name}. A mod package holds only .utoc, .ucas, and an optional .pak, plus INFO.txt and THUMB image metadata."
                         )
                     if stem is None:
                         stem = _safe_mod_stem(Path(name).stem)
                     elif Path(name).stem != stem:
-                        raise ManagerError(
-                            "Every file in the package must share the same mod name."
-                        )
+                        raise ManagerError("Every cooked file in the package must share the same mod name.")
                     if suffix in suffixes:
-                        raise ManagerError(
-                            f"The package contains more than one {suffix} file."
-                        )
+                        raise ManagerError(f"The package contains more than one {suffix} file.")
                     suffixes.add(suffix)
                     if info.file_size <= 0:
                         raise ManagerError(f"{name} in the package is empty.")
@@ -461,24 +511,16 @@ class ModManager:
                     with package.open(info) as member_stream:
                         while chunk := member_stream.read(1024 * 1024):
                             digest.update(chunk)
-                    members.append(
-                        {"entry": name, "sha256": digest.hexdigest(), "size": info.file_size}
-                    )
+                    members.append({"entry": name, "sha256": digest.hexdigest(), "size": info.file_size})
                 if not REQUIRED_MEMBER_SUFFIXES.issubset(suffixes):
-                    raise ManagerError(
-                        "The package must contain the cooked mod's .utoc and .ucas files."
-                    )
+                    raise ManagerError("The package must contain the cooked mod's .utoc and .ucas files.")
                 if ".pak" not in suffixes:
-                    members.append(
-                        {
-                            "entry": None,
-                            "suffix": ".pak",
-                            "sha256": hashlib.sha256(_STUB_PAK).hexdigest(),
-                            "size": len(_STUB_PAK),
-                            "stub": True,
-                        }
-                    )
-                return stem, members
+                    members.append({
+                        "entry": None, "suffix": ".pak",
+                        "sha256": hashlib.sha256(_STUB_PAK).hexdigest(),
+                        "size": len(_STUB_PAK), "stub": True,
+                    })
+                return stem, members, description, thumbnail
         except zipfile.BadZipFile as error:
             raise ManagerError("The uploaded file is not a valid .zip package.") from error
 
@@ -565,7 +607,7 @@ class ModManager:
                     os.fsync(output_stream.fileno())
                 staged_archive.rename(archive_path)
 
-                stem, members = self._read_package_members(archive_path)
+                stem, members, description, thumbnail = self._read_package_members(archive_path)
                 if kind == MOD_KIND_OVERRIDE and stem.casefold() in GAME_CONTAINER_STEMS:
                     raise ManagerError(
                         f"The mod name {stem} is reserved by the game itself."
@@ -602,6 +644,8 @@ class ModManager:
                 "sha256": digest.hexdigest(),
                 "size": received,
                 "enabled": True,
+                "description": description,
+                "thumbnail": thumbnail,
                 "added_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "members": members,
             }
@@ -748,6 +792,8 @@ class ModManager:
             "id": record["id"],
             "filename": record["filename"],
             "stem": record["stem"],
+            "description": str(record.get("description", "")),
+            "thumbnail": record.get("thumbnail"),
             "kind": record["kind"],
             "size": record["size"],
             "enabled": bool(record["enabled"]),
