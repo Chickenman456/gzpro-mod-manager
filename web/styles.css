@@ -1,7 +1,7 @@
 :root {
   color-scheme: dark;
-  font-family: "Segoe UI", system-ui, sans-serif;
-  background: #111318;
+  font-family: "Barlow Condensed", "Segoe UI", sans-serif;
+  background: #13191b;
   color: #eef0f6;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -12,7 +12,8 @@
 body {
   margin: 0;
   min-width: 320px;
-  background: radial-gradient(ellipse at 12% 0%, #232b3b 0, #111318 44rem);
+  background: linear-gradient(135deg, #13191b 0%, #18344a 100%);
+  background-attachment: fixed;
 }
 
 .topbar {
@@ -26,9 +27,16 @@ body {
 }
 
 h1, h2, h3, p { margin-top: 0; }
-h1 { margin-bottom: 0; font-size: clamp(1.7rem, 4vw, 2.3rem); }
-h2 { margin-bottom: .35rem; font-size: 1.25rem; }
-h3 { margin-bottom: .35rem; font-size: 1rem; }
+h1, h2, h3 {
+  color: #faedd5;
+  font-family: "Anton", Impact, sans-serif;
+  font-weight: 400;
+  letter-spacing: .025em;
+  text-transform: uppercase;
+}
+h1 { margin-bottom: 0; font-size: clamp(1.9rem, 4vw, 2.6rem); }
+h2 { margin-bottom: .35rem; font-size: 1.4rem; }
+h3 { margin-bottom: .35rem; font-size: 1.1rem; }
 
 .eyebrow, .muted, small { color: #a6acbb; }
 .eyebrow { margin-bottom: .4rem; font-size: .72rem; letter-spacing: .13em; }
