@@ -132,6 +132,29 @@ class ModManagerTests(unittest.TestCase):
         self.assertEqual(deployed[0].read_bytes(), b"cooked toc")
         self.assertTrue(enabled["enabled"])
 
+    def test_ignores_root_level_documentation_files(self) -> None:
+        members = default_members()
+        members["README.txt"] = b"Installation instructions"
+        members["readme.md"] = b"More documentation"
+        members["LICENSE"] = b"License text"
+        payload = make_package(members)
+
+        mod = self.install(payload=payload)
+
+        self.assertEqual(mod["file_count"], 3)
+        self.assertEqual(
+            [path.name for path in self.deployed()],
+            ["TestMod.utoc", "TestMod.ucas", "TestMod.pak"],
+        )
+
+    def test_still_rejects_nested_documentation_files(self) -> None:
+        payload = make_package({
+            **default_members(),
+            "docs/README.txt": b"Nested documentation",
+        })
+        with self.assertRaises(ManagerError):
+            self.install(payload=payload)
+
     def test_rejects_non_zip_and_path_like_names(self) -> None:
         for filename in ("track.wav", "..\\escape.zip", "folder/mod.zip", "CON.zip", "TestMod.pak"):
             with self.subTest(filename=filename), self.assertRaises(ManagerError):
