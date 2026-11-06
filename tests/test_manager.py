@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
 import tempfile
@@ -156,6 +157,28 @@ class ModManagerTests(unittest.TestCase):
         self.assertEqual(changed.read_bytes(), b"changed outside manager")
         self.assertTrue(backup.is_file())
         self.assertEqual(len(self.manager.get_status()["mods"]), 1)
+
+    def test_info_and_thumb_metadata_are_shown_but_not_deployed(self) -> None:
+        members = default_members()
+        members["INFO.txt"] = "A replacement music pack.\\nChanges the battle themes.".encode("utf-8")
+        members["THUMB.png"] = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII="
+        )
+        mod = self.install(payload=make_package(members))
+
+        self.assertEqual(mod["description"], "A replacement music pack.\\nChanges the battle themes.")
+        self.assertTrue(str(mod["thumbnail"]).startswith("data:image/png;base64,"))
+        self.assertEqual(mod["file_count"], 3)
+        self.assertFalse((self.paks_dir / "LogicMods" / "INFO.txt").exists())
+        self.assertFalse((self.paks_dir / "LogicMods" / "THUMB.png").exists())
+        status_mod = self.manager.get_status()["mods"][0]
+        self.assertEqual(status_mod["description"], mod["description"])
+        self.assertEqual(status_mod["thumbnail"], mod["thumbnail"])
+
+    def test_info_file_must_be_root_level_and_utf8(self) -> None:
+        nested = make_package({**default_members(), "docs/INFO.txt": b"description"})
+        with self.assertRaises(ManagerError):
+            self.install(payload=nested)
 
     def test_ignores_root_level_documentation_files(self) -> None:
         members = default_members()
