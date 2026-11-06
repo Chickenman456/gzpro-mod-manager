@@ -127,7 +127,7 @@ def _is_package_document(name: str) -> bool:
     if Path(name).name != name or "/" in name or chr(92) in name:
         return False
     return re.fullmatch(
-        r"(?:readme|license|licence|changelog|changes|notice|credits)(?:\.[^.]+)?",
+        r"(?:readme|install(?:ation)?|license|licence|changelog|changes|notice|credits)(?:\.[^.]+)?",
         name,
         flags=re.IGNORECASE,
     ) is not None
