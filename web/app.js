@@ -292,7 +292,7 @@ async function installSoundPackage() {
   if (!source) return;
   const rawName = byId("sound-mod-name").value.trim() || source.name.replace(/\.zip$/i, "");
   const safeName = rawName.replace(/\.zip$/i, "");
-  if (!safeName || safeName.length > 120 || /[<>:"|?*]/.test(safeName) || safeName.includes("/") || safeName.includes("\\\\") || /[. ]$/.test(safeName)) {
+  if (!safeName || safeName.length > 120 || /[<>:"|?*]/.test(safeName) || safeName.includes("/") || safeName.includes(String.fromCharCode(92)) || /[. ]$/.test(safeName)) {
     byId("sound-message").textContent = "Use a simple mod name without folders or Windows-reserved characters.";
     byId("sound-message").classList.add("error");
     return;
