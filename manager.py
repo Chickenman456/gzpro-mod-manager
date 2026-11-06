@@ -1029,6 +1029,13 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
         self.manager = manager
         super().__init__(*args, directory=str(WEB_DIRECTORY), **kwargs)
 
+    def translate_path(self, path: str) -> str:
+        # The logo is stored at the project root, alongside manager.py, rather
+        # than in web/. This also works in the PyInstaller one-file bundle.
+        if unquote(urlsplit(path).path) == "/gzprologo.png":
+            return str(Path(__file__).resolve().parent / "gzprologo.png")
+        return super().translate_path(path)
+
     def end_headers(self) -> None:
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
