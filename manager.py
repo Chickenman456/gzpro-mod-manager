@@ -122,6 +122,17 @@ def _safe_mod_filename(filename: str) -> str:
     return filename
 
 
+def _is_package_document(name: str) -> bool:
+    """Allow common documentation files alongside the cooked mod containers."""
+    if Path(name).name != name or "/" in name or chr(92) in name:
+        return False
+    return re.fullmatch(
+        r"(?:readme|license|licence|changelog|changes|notice|credits)(?:\.[^.]+)?",
+        name,
+        flags=re.IGNORECASE,
+    ) is not None
+
+
 def _safe_member_name(name: str) -> str:
     if (
         not name
@@ -405,9 +416,13 @@ class ModManager:
     def _read_package_members(self, archive: Path) -> tuple[str, list[dict[str, object]]]:
         try:
             with zipfile.ZipFile(archive) as package:
-                infos = [info for info in package.infolist() if not info.is_dir()]
+                infos = [
+                    info
+                    for info in package.infolist()
+                    if not info.is_dir() and not _is_package_document(info.filename)
+                ]
                 if not infos:
-                    raise ManagerError("The package is empty.")
+                    raise ManagerError("The package contains no cooked mod files.")
                 stem: str | None = None
                 suffixes: set[str] = set()
                 members: list[dict[str, object]] = []
