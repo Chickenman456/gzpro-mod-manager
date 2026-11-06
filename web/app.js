@@ -73,9 +73,23 @@ function renderStatus(status) {
 
   const unmanaged = byId("unmanaged");
   unmanaged.innerHTML = status.unmanaged_mods.length
-    ? `<h3>Manually installed mod files</h3><p class="muted">Detected .pak/.utoc/.ucas files that were not imported by this manager. They are listed for reference and will not be changed.</p>
-      <ul>${status.unmanaged_mods.map((mod) => `<li>${escapeHtml(mod.filename)} <span>${escapeHtml(mod.location)} · ${formatSize(mod.size)}</span></li>`).join("")}</ul>`
+    ? `<h3>Manually installed mods</h3><p class="muted">Adopt a detected mod to create a verified backup and manage its enabled state here. Adoption does not move or alter the installed files.</p>
+      <div class="mod-list">${status.unmanaged_mods.map((mod) => {
+        const fileNames = mod.files.map(escapeHtml).join(", ");
+        const disabled = state.busy || !status.game_valid || status.game_running || status.game_check_error;
+        return `<article class="mod-card">
+          <div class="mod-info">
+            <strong>${escapeHtml(mod.stem)}</strong>
+            <span>${escapeHtml(mod.location)} · ${formatSize(mod.size)} · ${mod.files.length} files</span>
+            <small>${fileNames}</small>
+          </div>
+          <button class="button button-primary" data-adopt-location="${escapeHtml(mod.location)}" data-adopt-stem="${escapeHtml(mod.stem)}" ${disabled ? "disabled" : ""}>Adopt</button>
+        </article>`;
+      }).join("")}</div>`
     : "";
+  unmanaged.querySelectorAll("button[data-adopt-location]").forEach((button) => {
+    button.addEventListener("click", () => adoptUnmanagedMod(button.dataset.adoptLocation, button.dataset.adoptStem));
+  });
   byId("mod-file").disabled = state.busy || !status.game_valid || Boolean(status.game_running) || Boolean(status.game_check_error);
   byId("refresh").disabled = state.busy;
 }
@@ -151,6 +165,29 @@ async function importFile(file) {
     state.busy = false;
     byId("upload-progress").hidden = true;
     byId("mod-file").value = "";
+    await refreshStatus();
+  }
+}
+
+async function adoptUnmanagedMod(location, stem) {
+  if (!location || !stem) return;
+  if (!window.confirm(
+    `Adopt ${stem} from ${location}? The manager will create a backup and register the existing files without moving or changing them. You can then disable or re-enable the mod here.`
+  )) return;
+  state.busy = true;
+  setMessage(`Backing up ${stem}…`);
+  renderStatus(state.status);
+  try {
+    await requestJson("/api/mods/adopt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ location, stem })
+    });
+    setMessage(`${stem} was adopted. Its original files are still installed and can now be managed here.`);
+  } catch (error) {
+    setMessage(`Could not adopt ${stem}: ${error.message}`, true);
+  } finally {
+    state.busy = false;
     await refreshStatus();
   }
 }
