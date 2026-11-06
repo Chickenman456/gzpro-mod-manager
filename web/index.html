@@ -18,6 +18,7 @@
     </div>
     <div class="header-meta">
       <span class="version-label">v1.2.2 · 2026-11-06</span>
+      <a class="button button-secondary report-bug" href="https://github.com/Chickenman456/gzpro-mod-manager/issues/new" target="_blank" rel="noopener noreferrer">Report a bug</a>
       <span class="local-badge">Local only</span>
     </div>
   </header>
@@ -51,6 +52,16 @@
         </div>
         <button id="refresh" class="button button-secondary" type="button">Refresh</button>
       </div>
+
+      <details class="package-guide">
+        <summary>Mod descriptions and thumbnails</summary>
+        <p>Add these optional files to the <strong>root</strong> of your mod ZIP, alongside the cooked <code>.utoc</code> and <code>.ucas</code> files:</p>
+        <ul>
+          <li><code>INFO.txt</code> — plain UTF-8 text. Its contents appear as the mod description in this launcher. Keep it to 16 KB or less.</li>
+          <li><code>THUMB.png</code>, <code>THUMB.jpg</code>, <code>THUMB.jpeg</code>, or <code>THUMB.webp</code> — displays an image beside the mod. The image must be 1 MB or smaller.</li>
+        </ul>
+        <p>Both are optional. Use the exact base names <code>INFO.txt</code> and <code>THUMB</code>; image extensions are case-insensitive. These files are metadata only and are not installed into the game.</p>
+      </details>
 
       <div class="kind-picker" role="radiogroup" aria-label="Mod type">
         <label class="kind-option">
