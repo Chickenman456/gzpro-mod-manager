@@ -60,10 +60,14 @@ function renderStatus(status) {
       const disabled = state.busy || !status.game_valid || status.game_running || status.game_check_error || mod.conflict || !mod.backup_available;
       const deleteDisabled = state.busy || !status.game_valid || status.game_running || status.game_check_error || !mod.backup_available;
       const kindLabel = mod.kind === "blueprint" ? "Blueprint · LogicMods" : "Asset override · Paks";
+      const thumbnail = mod.thumbnail ? `<img class="mod-thumbnail" src="${escapeHtml(mod.thumbnail)}" alt="${escapeHtml(mod.stem || "Mod")} thumbnail">` : "";
+      const description = mod.description ? `<p class="mod-description">${escapeHtml(mod.description)}</p>` : "";
       return `<article class="mod-card">
+        ${thumbnail}
         <div class="mod-info">
           <strong>${escapeHtml(mod.stem || mod.filename)}</strong>
           <span>${formatSize(mod.size)} · ${mod.file_count || 1} files · ${kindLabel} · ${escapeHtml(stateLabel)}</span>
+          ${description}
           <small>SHA-256 ${escapeHtml(mod.sha256.slice(0, 16))}… · backup ${mod.backup_available ? "available" : "missing"}</small>
         </div>
         <div class="mod-actions">
