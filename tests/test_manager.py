@@ -230,8 +230,32 @@ class ModManagerTests(unittest.TestCase):
 
         status = self.manager.get_status()
 
-        self.assertEqual(status["unmanaged_mods"], [{"filename": "ExternalMod.pak", "size": 8}])
+        self.assertEqual(
+            status["unmanaged_mods"],
+            [{"filename": "ExternalMod.pak", "size": 8, "location": "LogicMods"}],
+        )
         self.assertEqual(existing.read_bytes(), b"external")
+
+    def test_detects_manual_mod_files_in_paks_without_manager_prefix(self) -> None:
+        manual_utoc = self.paks_dir / "CustomMusic.utoc"
+        manual_ucas = self.paks_dir / "CustomMusic.ucas"
+        manual_pak = self.paks_dir / "CustomMusic.pak"
+        manual_utoc.write_bytes(b"toc")
+        manual_ucas.write_bytes(b"container")
+        manual_pak.write_bytes(b"pak")
+
+        status = self.manager.get_status()
+
+        self.assertEqual(
+            status["unmanaged_mods"],
+            [
+                {"filename": "CustomMusic.pak", "size": 3, "location": "Paks"},
+                {"filename": "CustomMusic.ucas", "size": 9, "location": "Paks"},
+                {"filename": "CustomMusic.utoc", "size": 3, "location": "Paks"},
+            ],
+        )
+        self.assertEqual(manual_ucas.read_bytes(), b"container")
+        self.assertEqual(self.original_archive.read_bytes(), b"untouched game archive")
 
     def test_refuses_case_insensitive_filename_collision_with_a_disabled_mod(self) -> None:
         first = self.install()
