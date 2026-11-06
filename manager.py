@@ -135,15 +135,26 @@ def _is_package_document(name: str) -> bool:
         flags=re.IGNORECASE,
     ) is not None
 
+def _root_package_name(name: str) -> str | None:
+    """Return a root-level ZIP member name, tolerating a leading ./ or .\\ prefix."""
+    normalized = name.replace(chr(92), "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    if not normalized or "/" in normalized:
+        return None
+    return normalized
+
+
 def _is_package_metadata(name: str) -> bool:
-    """Identify optional launcher metadata so it can never be deployed as a game file."""
-    if Path(name).name != name or "/" in name or chr(92) in name:
+    """Identify optional root-level launcher metadata so it is never deployed as a game file."""
+    root_name = _root_package_name(name)
+    if root_name is None:
         return False
     return (
-        name.casefold() == "info.txt"
+        root_name.casefold() == "info.txt"
         or (
-            Path(name).stem.casefold() == "thumb"
-            and Path(name).suffix.casefold() in MOD_THUMBNAIL_SUFFIXES
+            Path(root_name).stem.casefold() == "thumb"
+            and Path(root_name).suffix.casefold() in MOD_THUMBNAIL_SUFFIXES
         )
     )
 
@@ -436,12 +447,13 @@ class ModManager:
                 infos = [info for info in package.infolist() if not info.is_dir()]
                 info_entries = [
                     info for info in infos
-                    if info.filename.casefold() == "info.txt"
+                    if (_root_package_name(info.filename) or "").casefold() == "info.txt"
                 ]
                 thumb_entries = [
                     info for info in infos
-                    if Path(info.filename).stem.casefold() == "thumb"
-                    and Path(info.filename).suffix.casefold() in MOD_THUMBNAIL_SUFFIXES
+                    if (root_name := _root_package_name(info.filename)) is not None
+                    and Path(root_name).stem.casefold() == "thumb"
+                    and Path(root_name).suffix.casefold() in MOD_THUMBNAIL_SUFFIXES
                 ]
                 if len(info_entries) > 1 or len(thumb_entries) > 1:
                     raise ManagerError("Include only one root-level INFO.txt and one THUMB image.")
@@ -449,7 +461,7 @@ class ModManager:
                 description = ""
                 if info_entries:
                     info = info_entries[0]
-                    if Path(info.filename).name != info.filename or "/" in info.filename or "\\" in info.filename:
+                    if _root_package_name(info.filename) is None:
                         raise ManagerError("INFO.txt must be at the root of the mod zip.")
                     if info.file_size > MAX_INFO_SIZE:
                         raise ManagerError("INFO.txt must be 16 KB or smaller.")
@@ -464,7 +476,7 @@ class ModManager:
                 thumbnail = None
                 if thumb_entries:
                     thumb = thumb_entries[0]
-                    if Path(thumb.filename).name != thumb.filename or "/" in thumb.filename or "\\" in thumb.filename:
+                    if _root_package_name(thumb.filename) is None:
                         raise ManagerError("The THUMB image must be at the root of the mod zip.")
                     if thumb.file_size <= 0 or thumb.file_size > MAX_THUMBNAIL_SIZE:
                         raise ManagerError("The THUMB image must be between 1 byte and 1 MB.")
@@ -476,7 +488,7 @@ class ModManager:
                         (".jpeg", b"\xff\xd8\xff", "image/jpeg"),
                         (".webp", b"RIFF", "image/webp"),
                     )
-                    suffix = Path(thumb.filename).suffix.casefold()
+                    suffix = Path(_root_package_name(thumb.filename) or "").suffix.casefold()
                     match = next((item for item in signatures if item[0] == suffix), None)
                     valid_signature = bool(match and image_bytes.startswith(match[1]))
                     if suffix == ".webp":
