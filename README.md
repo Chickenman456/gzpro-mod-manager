@@ -30,6 +30,12 @@ Cooked container files must share the same mod name and sit at the zip root. Roo
 
 **Blueprint mod**: for UE4SS BPModLoaderMod logic mods (a `ModActor` Blueprint at `/Game/Mods/<ModName>/ModActor`). The manager deploys them as `<ModName>.pak/.utoc/.ucas` in `GZPro\Content\Paks\LogicMods`. **Requires UE4SS** installed separately into `GZPro\Binaries\Win64` (the `dwmapi.dll` + `ue4ss` folder from an official UE4SS release); the manager detects it and warns when it is missing. [Download UE4SS from its official releases page](https://github.com/UE4SS-RE/RE-UE4SS/releases). Choose the regular non-dev release, then follow the [official installation guide](https://docs.ue4ss.com/installation-guide). Verified working: a cooked Blueprint actor mod was deployed by this manager and spawned in-game.
 
+## Sound Mod Creator
+
+The browser app has a separate **Sound Mod Creator** tab. It can preview a source WAV/MP3/OGG/FLAC, then package and install a finished cooked sound-mod ZIP through the manager's normal asset-override workflow. The ZIP must contain matching `.utoc` and `.ucas` files (an optional same-named `.pak` is accepted).
+
+**Important limitation:** the current creator does not convert raw audio or loose cooked `.uasset`/`.uexp` files into an IoStore container. The replacement sound must already be cooked for this game, and its Unreal asset path must already be embedded in the cooked package. The audio preview is for reference only; it is not inserted into the game package. Raw-audio cooking and IoStore generation need compatible Unreal Engine cooking tools, which are not bundled with this manager.
+
 ## Current scope and safety
 
 - Accepts only `.zip` mod packages in the format above, ignoring common root-level documentation files; it does not inspect the cooked assets or confirm they were cooked for a compatible engine. A raw WAV or loose `.uasset` cannot be dropped in directly — cook it into a container first.
