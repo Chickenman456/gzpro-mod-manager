@@ -232,7 +232,7 @@ class ModManagerTests(unittest.TestCase):
 
         self.assertEqual(
             status["unmanaged_mods"],
-            [{"filename": "ExternalMod.pak", "size": 8, "location": "LogicMods"}],
+            [{"stem": "ExternalMod", "size": 8, "location": "LogicMods", "files": ["ExternalMod.pak"]}],
         )
         self.assertEqual(existing.read_bytes(), b"external")
 
@@ -248,14 +248,64 @@ class ModManagerTests(unittest.TestCase):
 
         self.assertEqual(
             status["unmanaged_mods"],
-            [
-                {"filename": "CustomMusic.pak", "size": 3, "location": "Paks"},
-                {"filename": "CustomMusic.ucas", "size": 9, "location": "Paks"},
-                {"filename": "CustomMusic.utoc", "size": 3, "location": "Paks"},
-            ],
+            [{
+                "stem": "CustomMusic",
+                "size": 15,
+                "location": "Paks",
+                "files": ["CustomMusic.pak", "CustomMusic.ucas", "CustomMusic.utoc"],
+            }],
         )
         self.assertEqual(manual_ucas.read_bytes(), b"container")
         self.assertEqual(self.original_archive.read_bytes(), b"untouched game archive")
+
+    def test_adopts_manual_paks_mod_and_manages_it_reversibly(self) -> None:
+        files = {
+            "ExternalMusic.pak": b"pak bytes",
+            "ExternalMusic.utoc": b"toc bytes",
+            "ExternalMusic.ucas": b"container bytes",
+        }
+        for filename, contents in files.items():
+            (self.paks_dir / filename).write_bytes(contents)
+
+        adopted = self.manager.adopt_unmanaged_mod("Paks", "ExternalMusic")
+        self.assertTrue(adopted["enabled"])
+        self.assertEqual(adopted["kind"], "override")
+        self.assertTrue(adopted["backup_available"])
+        self.assertTrue(all((self.paks_dir / name).read_bytes() == data for name, data in files.items()))
+        self.assertEqual(self.manager.get_status()["unmanaged_mods"], [])
+
+        disabled = self.manager.set_mod_enabled(str(adopted["id"]), False)
+        self.assertFalse(disabled["enabled"])
+        self.assertTrue(all(not (self.paks_dir / name).exists() for name in files))
+        self.assertTrue((self.manager.archive_dir / f"{adopted['id']}.zip").is_file())
+
+        enabled = self.manager.set_mod_enabled(str(adopted["id"]), True)
+        self.assertTrue(enabled["enabled"])
+        self.assertTrue(all((self.paks_dir / name).read_bytes() == data for name, data in files.items()))
+
+    def test_adopted_manual_logic_mod_is_managed_in_logicmods(self) -> None:
+        logic_mods = self.paks_dir / "LogicMods"
+        logic_mods.mkdir()
+        (logic_mods / "ExternalBP.utoc").write_bytes(b"toc")
+        (logic_mods / "ExternalBP.ucas").write_bytes(b"container")
+
+        adopted = self.manager.adopt_unmanaged_mod("LogicMods", "ExternalBP")
+        self.assertEqual(adopted["kind"], "blueprint")
+        disabled = self.manager.set_mod_enabled(str(adopted["id"]), False)
+        self.assertFalse(disabled["enabled"])
+        self.assertFalse((logic_mods / "ExternalBP.utoc").exists())
+        self.assertFalse((logic_mods / "ExternalBP.ucas").exists())
+
+    def test_adoption_refuses_to_remove_or_backup_changed_files(self) -> None:
+        source = self.paks_dir / "External.pak"
+        source.write_bytes(b"original")
+        original = source.read_bytes()
+        adopted = self.manager.adopt_unmanaged_mod("Paks", "External")
+        source.write_bytes(b"changed")
+        with self.assertRaises(ConflictError):
+            self.manager.set_mod_enabled(str(adopted["id"]), False)
+        self.assertEqual(source.read_bytes(), b"changed")
+        self.assertNotEqual(source.read_bytes(), original)
 
     def test_refuses_case_insensitive_filename_collision_with_a_disabled_mod(self) -> None:
         first = self.install()
