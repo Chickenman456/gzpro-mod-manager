@@ -26,6 +26,8 @@ body {
   background: #151820e8;
 }
 
+.brand-heading { min-width: 0; }
+.brand-logo { display: block; width: clamp(120px, 18vw, 210px); max-height: 90px; height: auto; object-fit: contain; }
 h1, h2, h3, p { margin-top: 0; }
 h1, h2, h3 {
   color: #faedd5;
@@ -126,7 +128,8 @@ footer strong { color: #cbd2df; }
 
 @media (max-width: 650px) {
   main { width: min(100% - 1rem, 960px); margin-top: 1rem; }
-  .topbar { padding: 1rem; }
+  .topbar { padding: 1rem; align-items: flex-start; }
+  .brand-logo { width: 112px; max-height: 64px; }
   .path-form { grid-template-columns: 1fr auto; }
   .path-form label { grid-column: 1 / -1; }
   .section-heading { align-items: center; }
