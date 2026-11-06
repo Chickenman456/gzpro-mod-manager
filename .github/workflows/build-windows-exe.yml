@@ -37,10 +37,10 @@ jobs:
       - name: Build standalone executable with launcher logo
         run: pyinstaller --noconfirm --clean --onefile --name GZProModManager --add-data "web;web" --add-data "gzprologo.png;." manager.py
 
-      - name: Attach executable to v1.3.3 release
+      - name: Attach executable to v1.3.4 release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.3.3
+          tag_name: v1.3.4
           files: dist/GZProModManager.exe
           overwrite_files: true
           fail_on_unmatched_files: true
