@@ -24,6 +24,12 @@ Mods install from a single `.zip` containing the cooked IoStore container:
 
 Cooked container files must share the same mod name and sit at the zip root. Root-level README, LICENSE, CHANGELOG, NOTICE, and CREDITS files are ignored; other unexpected files and nested folders are rejected.
 
+### Optional launcher metadata
+
+- Add a root-level `INFO.txt` (UTF-8, up to 16 KB) to show its text as the mod description in the launcher.
+- Add one root-level `THUMB.png`, `THUMB.jpg`, `THUMB.jpeg`, or `THUMB.webp` (up to 1 MB) to show a thumbnail beside the mod. The extension must match the image format.
+- These files are read by the manager and are not deployed into the game. Both are optional. The launcher also includes a **Report a bug** link to this repository's GitHub issue form.
+
 ### Two kinds of mods
 
 **Asset override** (default): for mods that replace existing game assets — music, textures, models. The cooked assets must live at the *same package path* as the originals (e.g. `/Game/Audio/GZ1/Streaming/MENU`). The manager deploys them as `GZPro-<ModName>.pak/.utoc/.ucas` directly in `GZPro\Content\Paks`, which gives the container the same mount priority as the game's own container so the replacement wins. **No UE4SS needed.** Verified working: the menu music was replaced with a cooked SoundWave and plays in-game.
