@@ -461,7 +461,7 @@ class ModManager:
                     signatures = (
                         (".png", b"\x89PNG\r\n\x1a\n", "image/png"),
                         (".jpg", b"\xff\xd8\xff", "image/jpeg"),
-                        (".jpeg", b"\\xff\\xd8\\xff", "image/jpeg"),
+                        (".jpeg", b"\xff\xd8\xff", "image/jpeg"),
                         (".webp", b"RIFF", "image/webp"),
                     )
                     suffix = Path(thumb.filename).suffix.casefold()
