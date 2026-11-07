@@ -35,7 +35,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Build standalone executable with launcher logo
-        run: pyinstaller --noconfirm --clean --onefile --name GZProModManager --add-data "web;web" --add-data "gzprologo.png;." manager.py
+        run: pyinstaller --noconfirm --clean --onefile --name GZProModManager --collect-all webview --collect-all clr_loader --collect-all pythonnet --add-data "web;web" --add-data "gzprologo.png;." manager.py
 
       - name: Attach executable to v1.5.0 release
         uses: softprops/action-gh-release@v2
