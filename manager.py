@@ -1393,18 +1393,18 @@ class ModManager:
 
             return self._describe_mod(record, archive_path)
 
-    def _unmanaged_cache_signature(self) -> dict[str, int | None]:
+    def _unmanaged_cache_signature(self) -> dict[str, str | None]:
         """Return cheap directory/manifest metadata used to invalidate the startup scan cache."""
-        signature: dict[str, int | None] = {}
+        signature: dict[str, str | None] = {}
         for key, path in (("paks", self.paks_dir), ("logic_mods", self.logic_mods_dir), ("manifest", self.manifest_path)):
             try:
                 stat = path.stat()
-                signature[key] = stat.st_mtime_ns ^ stat.st_size
+                signature[key] = f"{stat.st_mtime_ns}:{stat.st_size}"
             except OSError:
                 signature[key] = None
         return signature
 
-    def _read_unmanaged_cache(self, signature: dict[str, int | None]) -> list[dict[str, object]] | None:
+    def _read_unmanaged_cache(self, signature: dict[str, str | None]) -> list[dict[str, object]] | None:
         try:
             data = json.loads(self.unmanaged_cache_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -1424,7 +1424,7 @@ class ModManager:
         return items
 
     def _write_unmanaged_cache(
-        self, signature: dict[str, int | None], items: list[dict[str, object]]
+        self, signature: dict[str, str | None], items: list[dict[str, object]]
     ) -> None:
         self.unmanaged_cache_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.unmanaged_cache_path.with_name(
@@ -1645,7 +1645,7 @@ def schedule_self_update(release: dict[str, object]) -> None:
             "  if (!$ready) { throw 'Updated manager did not become ready within 30 seconds.' }\n"
             "  Start-Sleep -Seconds 3\n"
             "  $started.Refresh()\n"
-            "  if ($started.HasExited) { throw ('Updated manager exited during startup (exit code ' + $started.ExitCode + ').') }"
+            "  if ($started.HasExited) { throw ('Updated manager exited during startup (exit code ' + $started.ExitCode + ').') }\n"
             "  Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue\n"
             "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Update succeeded; new manager process is running')\n"
             "} catch {\n"
