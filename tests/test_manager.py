@@ -80,7 +80,7 @@ class ModManagerTests(unittest.TestCase):
             result = self.manager.open_mod_location()
 
         self.assertTrue(result["opened"])
-        self.assertEqual(Path(result["path"]), self.paks_dir)
+        self.assertTrue(Path(result["path"]).samefile(self.paks_dir))
         self.assertEqual(popen.call_args.args[0], ["explorer.exe", str(self.paks_dir)])
 
     def test_mod_display_name_can_be_renamed_without_changing_deployed_files(self) -> None:
