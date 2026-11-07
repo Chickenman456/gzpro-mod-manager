@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.9.0"
+APP_VERSION = "1.9.1"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -1567,69 +1567,25 @@ class DesktopWindowApi:
 
     def __init__(self) -> None:
         self.window = None
-        self._maximized = False
-        self._wndproc_callback = None
+        self.webview_module = None
 
-    def enable_resize(self) -> None:
-        """Add Windows hit testing so the custom title bar can move and resize."""
-        if not self.window or sys.platform != "win32" or self._wndproc_callback:
-            return
-        try:
-            user32 = ctypes.windll.user32
-            raw_handle = self.window.native.Handle
-            hwnd = int(raw_handle.ToInt64()) if hasattr(raw_handle, "ToInt64") else int(raw_handle)
-            get_long = user32.GetWindowLongPtrW
-            get_long.argtypes = [ctypes.c_void_p, ctypes.c_int]
-            get_long.restype = ctypes.c_ssize_t
-            set_long = user32.SetWindowLongPtrW
-            set_long.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
-            set_long.restype = ctypes.c_ssize_t
-            call_proc = user32.CallWindowProcW
-            call_proc.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t]
-            call_proc.restype = ctypes.c_ssize_t
-            get_rect = user32.GetWindowRect
-            get_rect.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-            get_rect.restype = ctypes.c_int
-
-            class RECT(ctypes.Structure):
-                _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-
-            old_proc = get_long(hwnd, -4)
-            # WS_THICKFRAME lets Windows complete the resize system command
-            # after our WM_NCHITTEST returns an edge or corner code.
-            style = get_long(hwnd, -16)
-            set_long(hwnd, -16, style | 0x00040000)
-            user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0027)
-            edge = 8
-            WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t)
-
-            def wndproc(window_handle, message, wparam, lparam):
-                if message == 0x0084:
-                    rect = RECT()
-                    if get_rect(window_handle, ctypes.byref(rect)):
-                        packed = ctypes.c_uint32(lparam).value
-                        x = ctypes.c_short(packed & 0xFFFF).value
-                        y = ctypes.c_short((packed >> 16) & 0xFFFF).value
-                        left, top, right, bottom = rect.left, rect.top, rect.right, rect.bottom
-                        if not self._maximized:
-                            at_left, at_right = x < left + edge, x >= right - edge
-                            at_top, at_bottom = y < top + edge, y >= bottom - edge
-                            if at_top and at_left: return 13
-                            if at_top and at_right: return 14
-                            if at_bottom and at_left: return 16
-                            if at_bottom and at_right: return 17
-                            if at_left: return 10
-                            if at_right: return 11
-                            if at_top: return 12
-                            if at_bottom: return 15
-                        if top <= y < top + 38 and x < right - 138:
-                            return 2
-                return call_proc(old_proc, window_handle, message, wparam, lparam)
-
-            self._wndproc_callback = WNDPROC(wndproc)
-            set_long(hwnd, -4, ctypes.cast(self._wndproc_callback, ctypes.c_void_p).value)
-        except Exception:
-            self._wndproc_callback = None
+    def open_nexus(self, url: str) -> bool:
+        """Open only the game's Nexus Mods pages in a separate app browser window."""
+        if not isinstance(url, str):
+            return False
+        parsed = urlsplit(url)
+        if (parsed.scheme != "https"
+                or parsed.hostname not in {"www.nexusmods.com", "nexusmods.com"}
+                or not parsed.path.startswith("/godzilladestroyallmonstersmeleeremastered/")):
+            return False
+        if self.webview_module is None:
+            webbrowser.open(url)
+            return True
+        self.webview_module.create_window(
+            "Nexus Mods — Godzilla Remastered", url,
+            width=1180, height=850, min_size=(760, 600), resizable=True,
+        )
+        return True
 
     def minimize(self) -> None:
         if self.window:
@@ -1688,14 +1644,13 @@ def main() -> int:
             try:
                 import webview
                 api = DesktopWindowApi()
+                api.webview_module = webview
                 window = webview.create_window(
                     f"GZPro Mod Manager v{APP_VERSION}", address + "?desktop=1",
                     width=1180, height=850, min_size=(760, 600), resizable=True,
-                    frameless=True, easy_drag=False, js_api=api,
+                    frameless=False, resizable=True,
                     background_color="#13191b", shadow=True,
                 )
-                api.window = window
-                window.events.before_show += api.enable_resize
                 webview.start()
                 return 0
             except Exception as error:
