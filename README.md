@@ -29,7 +29,7 @@ Mods install from a single `.zip` containing the cooked IoStore container:
 - `<ModName>.utoc` + `<ModName>.ucas` — required; the cooked container holding the mod's assets.
 - `<ModName>.pak` — optional companion. If the zip has no `.pak`, the manager deploys a tiny verified stub `.pak` instead: this game only mounts a container when a same-named `.pak` sits next to it. The stub is parsed but never mounted, so its contents never reach the game.
 
-Standard cooked container files must share the same mod name and sit at the zip root. Combined skin-loader packages are also supported: one skin-data folder containing the matching .utoc/.ucas (and optional .pak), plus a GZSkinLoader folder containing Scripts/main.lua and enabled.txt. The skin containers are installed under Paks\\~mods and the loader files under GZPro\\Binaries\\Win64\\ue4ss\\Mods\\GZSkinLoader. The manager enables, disables, and deletes both components together. Root-level README, LICENSE, CHANGELOG, NOTICE, and CREDITS files are ignored; other unexpected paths are rejected.
+Standard cooked container files must share the same mod name and sit at the zip root. Combined skin-loader packages are also supported: one skin-data folder containing the matching .utoc/.ucas (and optional .pak), plus a GZSkinLoader folder containing Scripts/main.lua and enabled.txt. The skin containers are installed under Paks\\~mods and the loader files under GZPro\\Binaries\\Win64\\ue4ss\\Mods\\GZSkinLoader. The manager enables, disables, and deletes both components together. Root-level README, LICENSE, CHANGELOG, NOTICE, and CREDITS files are ignored; other unexpected paths are rejected unless you approve the supported DLL-install prompt.
 
 ### Optional launcher metadata
 
@@ -45,7 +45,7 @@ Standard cooked container files must share the same mod name and sit at the zip 
 
 ## Current scope and safety
 
-- Accepts `.zip` mod packages containing cooked IoStore files, combined skin-loader packages, or game-root UE4SS layouts. UE4SS packages may include the exact proxy path `GZPro/Binaries/Win64/dwmapi.dll` and files beneath `GZPro/Binaries/Win64/ue4ss/`; arbitrary DLL locations remain unsupported. The manager does not inspect code inside DLLs or scripts, so only install packages from sources you trust. A raw WAV or loose `.uasset` cannot be dropped in directly — cook it into a container first.
+- Accepts `.zip` mod packages containing cooked IoStore files, combined skin-loader packages, or game-root UE4SS layouts. A confirmation prompt can also install DLLs from the ZIP root, `Win64/`, `Binaries/Win64/`, or `GZPro/Binaries/Win64/` into the game's `GZPro/Binaries/Win64` folder. This is an explicit opt-in because DLLs can execute code inside the game. The manager does not inspect code inside DLLs or scripts, so only install packages from sources you trust. A raw WAV or loose `.uasset` cannot be dropped in directly — cook it into a container first.
 - Keeps a SHA-256-checked backup of every package under `%LOCALAPPDATA%\GZProModManager`.
 - Can disable a managed mod only when every deployed file still matches its saved hash. Re-enabling refuses to overwrite a same-named file that differs.
 - Can permanently delete a managed mod and its backup. Deletion first verifies the backup and every installed file; if a file was changed outside the manager, it is left untouched and deletion is blocked.
