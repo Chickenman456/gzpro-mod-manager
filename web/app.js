@@ -1,5 +1,57 @@
-const state = { status: null, busy: false };
+const state = { status: null, busy: false, changelogLoaded: false };
 const byId = (id) => document.getElementById(id);
+
+ 
+function selectTab(name) {
+  const modsActive = name === "mods";
+  byId("tab-mods").classList.toggle("active", modsActive);
+  byId("tab-changelog").classList.toggle("active", !modsActive);
+  byId("tab-mods").setAttribute("aria-selected", String(modsActive));
+  byId("tab-changelog").setAttribute("aria-selected", String(!modsActive));
+  byId("page-mods").hidden = !modsActive;
+  byId("page-changelog").hidden = modsActive;
+  if (!modsActive && !state.changelogLoaded) loadChangelog();
+}
+
+function formatCommitDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+async function loadChangelog() {
+  const status = byId("changelog-status");
+  const list = byId("changelog-list");
+  status.textContent = "Loading recent commits from GitHub…";
+  status.classList.remove("error");
+  byId("refresh-changelog").disabled = true;
+  try {
+    const response = await fetch("https://api.github.com/repos/Chickenman456/gzpro-mod-manager/commits?per_page=25", {
+      headers: { "Accept": "application/vnd.github+json" }
+    });
+    if (!response.ok) throw new Error(response.status === 403 ? "GitHub API rate limit reached. Try again later." : `GitHub returned HTTP ${response.status}.`);
+    const commits = await response.json();
+    if (!Array.isArray(commits)) throw new Error("GitHub returned an unexpected response.");
+    list.innerHTML = commits.map((commit) => {
+      const message = String(commit.commit?.message || "Commit").split("\n")[0];
+      const author = commit.commit?.author?.name || commit.author?.login || "Unknown author";
+      const date = formatCommitDate(commit.commit?.author?.date || commit.commit?.committer?.date || "");
+      const shortHash = String(commit.sha || "").slice(0, 7);
+      const url = commit.html_url || "https://github.com/Chickenman456/gzpro-mod-manager/commits/master";
+      return `<article class="changelog-entry">
+        <div class="changelog-entry-heading"><strong>${escapeHtml(message)}</strong><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortHash)}</a></div>
+        <span>${escapeHtml(date)} · ${escapeHtml(author)}</span>
+      </article>`;
+    }).join("");
+    status.textContent = `Showing ${commits.length} recent commits from master.`;
+    state.changelogLoaded = true;
+  } catch (error) {
+    status.textContent = `Could not load the GitHub changelog: ${error.message}`;
+    status.classList.add("error");
+    list.innerHTML = "";
+  } finally {
+    byId("refresh-changelog").disabled = false;
+  }
+}
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
@@ -239,6 +291,10 @@ async function changeModState(modId, action) {
     await refreshStatus();
   }
 }
+
+byId("tab-mods").addEventListener("click", () => selectTab("mods"));
+byId("tab-changelog").addEventListener("click", () => selectTab("changelog"));
+byId("refresh-changelog").addEventListener("click", loadChangelog);
 
 byId("mod-file").addEventListener("change", (event) => importFile(event.target.files[0]));
 byId("refresh").addEventListener("click", refreshStatus);
