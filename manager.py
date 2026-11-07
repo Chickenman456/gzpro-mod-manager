@@ -32,7 +32,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.6.1"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -1227,8 +1227,9 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path: str) -> str:
         # The logo is stored at the project root, alongside manager.py, rather
         # than in web/. This also works in the PyInstaller one-file bundle.
-        if unquote(urlsplit(path).path) == "/gzprologo.png":
-            return str(Path(__file__).resolve().parent / "gzprologo.png")
+        requested_path = unquote(urlsplit(path).path)
+        if requested_path in {"/gzprologo.png", "/gzpicon.png"}:
+            return str(Path(__file__).resolve().parent / requested_path.lstrip("/"))
         return super().translate_path(path)
 
     def end_headers(self) -> None:
