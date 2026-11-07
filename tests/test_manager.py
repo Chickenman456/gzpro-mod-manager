@@ -176,6 +176,45 @@ class ModManagerTests(unittest.TestCase):
         self.assertFalse((loader_mod / "enabled.txt").exists())
         self.assertFalse((paks_mods / "CharacterPack_P.ucas").exists())
 
+    def test_character_package_reuses_identical_existing_ue4ss_runtime(self) -> None:
+        binaries = self.game_dir / "GZPro" / "Binaries" / "Win64"
+        ue4ss = binaries / "ue4ss"
+        ue4ss.mkdir(parents=True)
+        (binaries / "dwmapi.dll").write_bytes(b"proxy loader")
+        (ue4ss / "UE4SS.dll").write_bytes(b"UE4SS core")
+        (ue4ss / "UE4SS-settings.ini").write_bytes(b"[Settings]")
+
+        payload = make_package({
+            "GZPro/Binaries/Win64/dwmapi.dll": b"proxy loader",
+            "GZPro/Binaries/Win64/ue4ss/UE4SS.dll": b"UE4SS core",
+            "GZPro/Binaries/Win64/ue4ss/UE4SS-settings.ini": b"[Settings]",
+            "GZPro/Binaries/Win64/ue4ss/Mods/CharacterPack/enabled.txt": b"",
+            "GZPro/Binaries/Win64/ue4ss/Mods/CharacterPack/Scripts/main.lua": b"print('character mod')",
+        })
+        mod = self.install("CharacterPack.zip", payload, kind="override")
+        self.assertTrue(mod["requires_ue4ss"])
+        self.assertEqual((binaries / "dwmapi.dll").read_bytes(), b"proxy loader")
+
+        self.manager.set_mod_enabled(str(mod["id"]), False)
+        self.assertTrue((binaries / "dwmapi.dll").is_file())
+        self.assertTrue((ue4ss / "UE4SS.dll").is_file())
+        self.assertFalse((ue4ss / "Mods" / "CharacterPack" / "Scripts" / "main.lua").exists())
+
+        self.manager.delete_mod(str(mod["id"]))
+        self.assertTrue((binaries / "dwmapi.dll").is_file())
+        self.assertTrue((ue4ss / "UE4SS.dll").is_file())
+
+    def test_ue4ss_only_package_uses_mod_folder_name(self) -> None:
+        payload = make_package({
+            "GZPro/Binaries/Win64/dwmapi.dll": b"proxy loader",
+            "GZPro/Binaries/Win64/ue4ss/UE4SS.dll": b"UE4SS core",
+            "GZPro/Binaries/Win64/ue4ss/Mods/CharacterOnly/enabled.txt": b"",
+            "GZPro/Binaries/Win64/ue4ss/Mods/CharacterOnly/Scripts/main.lua": b"print('character only')",
+        })
+        mod = self.install("UnhelpfulArchiveName.zip", payload, kind="override")
+        self.assertEqual(mod["stem"], "CharacterOnly")
+        self.assertTrue((self.game_dir / "GZPro" / "Binaries" / "Win64" / "ue4ss" / "Mods" / "CharacterOnly" / "Scripts" / "main.lua").is_file())
+
     def test_profiles_save_and_switch_enabled_mod_combinations(self) -> None:
         first = self.install("First.zip")
         second_payload = make_package(default_members("SecondMod"))
