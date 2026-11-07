@@ -174,9 +174,10 @@ async function requestJson(url, options = {}) {
 function renderStatus(status) {
   state.status = status;
   byId("game-dir").value = status.game_dir;
+  const ue4ssWin64Path = `${escapeHtml(status.game_dir)}\\GZPro\\Binaries\\Win64`;
   byId("compatibility-warning").innerHTML = status.ue4ss_installed
     ? "UE4SS is installed. Blueprint and UE4SS character/skin mods can load through the loader. Asset override mods (music, textures, models) do not need UE4SS."
-    : 'UE4SS is required for Blueprint and UE4SS character/skin mods. This game uses Unreal Engine 5.8, so use a compatible experimental UE4SS build. Asset override mods (music, textures, models) work without it. <a href="https://github.com/UE4SS-RE/RE-UE4SS/releases" target="_blank" rel="noopener noreferrer">Download UE4SS</a>.';
+    : 'UE4SS is required for Blueprint and UE4SS character/skin mods. This game uses Unreal Engine 5.8 and needs the experimental build. <a href="https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest" target="_blank" rel="noopener noreferrer">Download the experimental UE4SS build</a>. Download the normal <code>UE4SS_v3.x.x</code> ZIP, then extract <code>dwmapi.dll</code> and the entire <code>ue4ss</code> folder into <code>' + ue4ssWin64Path + '</code> (the folder containing <code>GZProSteam-Win64-Shipping.exe</code>). Do not use the DEV ZIP. If <code>dwmapi.dll</code> already exists, do not overwrite it blindly; one proxy DLL can occupy that filename.';
 
   const installStatus = byId("install-status");
   if (status.game_check_error) {
