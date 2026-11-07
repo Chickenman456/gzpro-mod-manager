@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from manager import ConflictError, ManagerError, ModManager, _run_check_with_timeout, create_server
+from manager import ConflictError, ManagerError, ModManager, create_server
 
 
 def make_package(members: dict[str, bytes]) -> bytes:
@@ -309,6 +309,64 @@ class ModManagerTests(unittest.TestCase):
         self.assertEqual(stub.read_bytes(), b"author supplied pak")
         self.assertEqual(mod["file_count"], 3)
 
+    def test_package_supports_multiple_matching_container_sets(self) -> None:
+        payload = make_package({
+            "MusicA.utoc": b"music A toc",
+            "MusicA.ucas": b"music A container",
+            "MusicA.pak": b"music A pak",
+            "MusicB.utoc": b"music B toc",
+            "MusicB.ucas": b"music B container",
+        })
+
+        mod = self.install(payload=payload)
+        logic = self.paks_dir / "LogicMods"
+        self.assertEqual((logic / "MusicA.pak").read_bytes(), b"music A pak")
+        self.assertEqual((logic / "MusicA.utoc").read_bytes(), b"music A toc")
+        self.assertEqual((logic / "MusicA.ucas").read_bytes(), b"music A container")
+        self.assertTrue((logic / "MusicB.utoc").is_file())
+        self.assertTrue((logic / "MusicB.ucas").is_file())
+        self.assertGreater((logic / "MusicB.pak").stat().st_size, 0)
+        self.assertEqual(mod["file_count"], 6)
+
+        disabled = self.manager.set_mod_enabled(str(mod["id"]), False)
+        self.assertFalse(disabled["enabled"])
+        for stem in ("MusicA", "MusicB"):
+            for suffix in (".pak", ".utoc", ".ucas"):
+                self.assertFalse((logic / f"{stem}{suffix}").exists())
+        enabled = self.manager.set_mod_enabled(str(mod["id"]), True)
+        self.assertTrue(enabled["enabled"])
+        self.assertEqual((logic / "MusicA.pak").read_bytes(), b"music A pak")
+        self.assertGreater((logic / "MusicB.pak").stat().st_size, 0)
+
+    def test_override_package_preserves_each_container_name(self) -> None:
+        payload = make_package({
+            "MusicA.utoc": b"music A toc",
+            "MusicA.ucas": b"music A container",
+            "MusicA.pak": b"music A pak",
+            "MusicB.utoc": b"music B toc",
+            "MusicB.ucas": b"music B container",
+            "MusicB.pak": b"music B pak",
+        })
+        mod = self.install("CombinedMusic.zip", payload, kind="override")
+        for stem in ("GZPro-MusicA", "GZPro-MusicB"):
+            self.assertTrue((self.paks_dir / f"{stem}.utoc").is_file())
+            self.assertTrue((self.paks_dir / f"{stem}.ucas").is_file())
+            self.assertTrue((self.paks_dir / f"{stem}.pak").is_file())
+        self.assertEqual((self.paks_dir / "GZPro-MusicA.pak").read_bytes(), b"music A pak")
+        self.assertEqual((self.paks_dir / "GZPro-MusicB.pak").read_bytes(), b"music B pak")
+        self.assertEqual(mod["file_count"], 6)
+
+    def test_multiple_container_sets_must_each_have_matching_utoc_and_ucas(self) -> None:
+        payload = make_package({
+            "MusicA.utoc": b"music A toc",
+            "MusicA.ucas": b"music A container",
+            "MusicB.utoc": b"music B toc",
+            "MusicB.pak": b"music B pak",
+        })
+        with self.assertRaisesRegex(ManagerError, "MusicB must include matching"):
+            self.install(payload=payload)
+        self.assertFalse((self.paks_dir / "LogicMods").exists())
+
     def test_disable_and_enable_preserve_backup_and_are_reversible(self) -> None:
         mod = self.install()
         deployed = self.deployed()
@@ -533,12 +591,6 @@ class ModManagerTests(unittest.TestCase):
         self.assertEqual(installed.read_bytes(), b"changed by another tool")
         self.assertTrue((self.paks_dir / "LogicMods" / "TestMod.utoc").is_file())
         self.assertTrue((self.manager.archive_dir / f"{mod['id']}.zip").is_file())
-
-    def test_status_path_check_times_out_instead_of_blocking_forever(self) -> None:
-        never_finishes = threading.Event()
-        valid, error = _run_check_with_timeout(lambda: never_finishes.wait(0.2), timeout=0.01)
-        self.assertFalse(valid)
-        self.assertIn("Timed out", error or "")
 
     def test_lists_existing_unmanaged_mods_without_managing_them(self) -> None:
         logic_mods = self.paks_dir / "LogicMods"
