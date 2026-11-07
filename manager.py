@@ -1016,16 +1016,21 @@ class ModManager:
                 if existing and existing["kind"] != kind:
                     raise ManagerError("The existing mod uses a different install type. Remove it before changing its type.")
 
-                deployed_stem = self._deployed_stem(stem, kind)
                 for member in members:
                     if "target" in member:
                         continue
+                    source_name = (
+                        str(member["name"])
+                        if member.get("entry") is None
+                        else Path(str(member["entry"])).name
+                    )
+                    member_stem = Path(source_name).stem
                     suffix = (
                         str(member.get("suffix"))
                         if member.get("entry") is None
                         else Path(str(member["entry"])).suffix
                     )
-                    member["name"] = deployed_stem + suffix.lower()
+                    member["name"] = self._deployed_stem(member_stem, kind) + suffix.lower()
 
                 if kind == MOD_KIND_BLUEPRINT and (not existing or bool(existing["enabled"])):
                     self._check_logic_mods_path(create=True)
