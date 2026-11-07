@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.11.4"
+APP_VERSION = "1.11.5"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -820,11 +820,12 @@ class ModManager:
                     )
                     add_member(info, entry, skin_stem + suffix, target)
 
-                allowed_folder_names = {skin_stem.casefold(), (skin_stem + "_P").casefold()}
-                if skin_stem.casefold().endswith("_p"):
-                    allowed_folder_names.add(skin_stem[:-2].casefold())
-                if skin_folder and skin_folder.casefold() not in allowed_folder_names:
-                    raise ManagerError("The skin container folder must match the .utoc mod name.")
+                if skin_stem:
+                    allowed_folder_names = {skin_stem.casefold(), (skin_stem + "_P").casefold()}
+                    if skin_stem.casefold().endswith("_p"):
+                        allowed_folder_names.add(skin_stem[:-2].casefold())
+                    if skin_folder and skin_folder.casefold() not in allowed_folder_names:
+                        raise ManagerError("The skin container folder must match the .utoc mod name.")
                 if skin_infos and not REQUIRED_MEMBER_SUFFIXES.issubset(suffixes):
                     raise ManagerError("The package must contain the cooked mod's .utoc and .ucas files.")
                 if has_skin_loader and not skin_infos:
