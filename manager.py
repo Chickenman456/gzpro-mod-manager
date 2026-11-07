@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.11.3"
+APP_VERSION = "1.11.4"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -728,7 +728,7 @@ class ModManager:
                             len(parts) == 1
                             or (len(parts) == 2 and parts[0].casefold() == "win64")
                             or (len(parts) == 3 and parts[0].casefold() == "binaries" and parts[1].casefold() == "win64")
-                            or (len(parts) == 5 and [part.casefold() for part in parts[:3]] == ["gzpro", "binaries", "win64"])
+                            or (len(parts) == 4 and [part.casefold() for part in parts[:3]] == ["gzpro", "binaries", "win64"])
                         )
                     ):
                         if not install_dlls:
