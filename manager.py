@@ -934,6 +934,8 @@ class ModManager:
             destination = self._member_path(member, target_dir)
             installed = self._existing_named_file(destination.parent, destination.name)
             if installed is not None:
+                if member.get("preserve_existing"):
+                    continue
                 if member.get("preexisting"):
                     actual_hash, actual_size = _hash_file(installed)
                     if actual_hash == member["sha256"] and actual_size == member["size"]:
@@ -1075,6 +1077,10 @@ class ModManager:
                                 if key not in old_paths:
                                     actual_hash, actual_size = _hash_file(installed)
                                     if actual_hash != member["sha256"] or actual_size != member["size"]:
+                                        if str(member.get("target") or "").casefold() == "gzpro/binaries/win64/dwmapi.dll":
+                                            member["preexisting"] = True
+                                            member["preserve_existing"] = True
+                                            continue
                                         raise ConflictError(
                                             f"{installed.name} already exists and differs from this mod. "
                                             "The manager will not overwrite it."
@@ -1148,6 +1154,12 @@ class ModManager:
                         continue
                     actual_hash, actual_size = _hash_file(installed)
                     if actual_hash != member["sha256"] or actual_size != member["size"]:
+                        if str(member.get("target") or "").casefold() == "gzpro/binaries/win64/dwmapi.dll":
+                            # dwmapi.dll is the single shared UE4SS proxy slot. Keep the
+                            # user's installed loader and deploy the mod's other files.
+                            member["preexisting"] = True
+                            member["preserve_existing"] = True
+                            continue
                         raise ConflictError(
                             f"{installed.name} already exists and differs from this mod. "
                             "The manager will not overwrite it. If it is a UE4SS file, keep the existing loader version."
@@ -1207,6 +1219,10 @@ class ModManager:
                 existing = self._existing_named_file(destination.parent, destination.name)
                 if existing is None:
                     continue
+                if member.get("preserve_existing") and str(member.get("target") or "").casefold() == "gzpro/binaries/win64/dwmapi.dll":
+                    # A different installed proxy DLL belongs to the existing UE4SS
+                    # installation. Leave it in place and do not claim ownership.
+                    continue
                 game_hash, game_size = _hash_file(existing)
                 if game_hash != member["sha256"] or game_size != member["size"]:
                     raise ConflictError(
@@ -1216,12 +1232,20 @@ class ModManager:
                 present[str(member.get("target") or member["name"])] = existing
 
             if enabled:
-                missing = [
-                    member for member in members if str(member.get("target") or member["name"]) not in present
-                ]
+                missing = []
+                for member in members:
+                    member_key = str(member.get("target") or member["name"])
+                    if member_key in present:
+                        continue
+                    destination = self._member_path(member, target_dir)
+                    installed = self._existing_named_file(destination.parent, destination.name)
+                    if member.get("preserve_existing") and installed is not None:
+                        continue
+                    missing.append(member)
                 if missing:
                     for member in missing:
                         member.pop("preexisting", None)
+                        member.pop("preserve_existing", None)
                     with zipfile.ZipFile(archive) as package:
                         for member in missing:
                             destination = self._member_path(member, target_dir)
