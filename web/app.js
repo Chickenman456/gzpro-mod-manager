@@ -288,27 +288,33 @@ async function refreshStatus() {
   const startedAt = performance.now();
   const controller = new AbortController();
   let polling = false;
+  let finished = false;
   indicator.hidden = false;
   stage.textContent = "Starting game and mod checks…";
   elapsed.textContent = "0s";
 
   const updateProgress = async () => {
-    if (polling) return;
+    if (polling || finished) return;
     polling = true;
+    const progressController = new AbortController();
+    const progressTimeout = setTimeout(() => progressController.abort(), 1500);
     try {
-      const progress = await requestJson("/api/status/progress");
-      if (progress.stage) stage.textContent = progress.stage;
+      const progress = await requestJson("/api/status/progress", { signal: progressController.signal });
+      // Ignore the initial idle value. A progress failure must never block the main status request.
+      if (!finished && progress.active && progress.stage) stage.textContent = progress.stage;
     } catch (_) {
-      // The main status request remains authoritative if progress polling fails.
+      // Progress is optional. The main status request remains authoritative.
     } finally {
+      clearTimeout(progressTimeout);
       polling = false;
-      elapsed.textContent = `${Math.floor((performance.now() - startedAt) / 1000)}s`;
+      if (!finished) elapsed.textContent = `${Math.floor((performance.now() - startedAt) / 1000)}s`;
     }
   };
 
-  await updateProgress();
   const progressTimer = setInterval(updateProgress, 500);
   const timeoutTimer = setTimeout(() => controller.abort(), 30000);
+  // Do not await progress polling here. Start the actual status check immediately.
+  updateProgress();
   try {
     renderStatus(await requestJson("/api/status", { signal: controller.signal }));
   } catch (error) {
@@ -321,6 +327,7 @@ async function refreshStatus() {
       stage.textContent = "Status check failed";
     }
   } finally {
+    finished = true;
     clearTimeout(timeoutTimer);
     clearInterval(progressTimer);
     elapsed.textContent = `${Math.floor((performance.now() - startedAt) / 1000)}s`;
