@@ -17,6 +17,8 @@ A small, local-only Windows tool for safely staging pre-cooked `.pak` mods for *
    .\run.bat --game-dir "D:\SteamLibrary\steamapps\common\Godzilla Destroy All Monsters Melee Remastered"
    ```
 
+The launcher includes a **Changelog** tab that reads the latest commit history from this GitHub repository. An internet connection is required to load it.
+
 The manager binds only to `127.0.0.1`, asks Windows for an available local port by default, and uses only Python's standard library.
 
 ## Mod package format (verified working)
