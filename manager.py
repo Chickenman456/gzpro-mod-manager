@@ -831,6 +831,12 @@ class ModManager:
                 stem = _safe_mod_stem(stem)
                 if not members:
                     raise ManagerError("The package contains no installable mod files.")
+                destinations = [
+                    str(member.get("target") or member["name"]).casefold()
+                    for member in members
+                ]
+                if len(destinations) != len(set(destinations)):
+                    raise ManagerError("The package contains duplicate files targeting the same game location.")
                 return stem, members, description, thumbnail
         except zipfile.BadZipFile as error:
             raise ManagerError("The uploaded file is not a valid .zip package.") from error
