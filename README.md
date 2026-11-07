@@ -8,7 +8,7 @@ A small, local-only Windows tool for safely staging pre-cooked `.pak` mods for *
 
 ## Run
 
-The project is open source under the MIT License. See [LICENSE](LICENSE).
+The project is open source under the MIT License. See [LICENSE](LICENSE). UI controls use human-designed Lucide SVG icons; no AI-generated icons are used. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the icon license.
 
 1. For normal use, download and double-click `GZProModManager.exe` from the [latest release](https://github.com/Chickenman456/gzpro-mod-manager/releases/latest). No terminal window or Python installation is required.
 2. If the game is installed elsewhere, enter its install folder in the app.
