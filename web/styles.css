@@ -176,12 +176,12 @@ footer strong { color: #cbd2df; }
 @media (max-width: 650px) { .mod-toggle { align-self: flex-start; } }
 
 /* Godzilla Remastered font lineup */
-.product-subtitle { margin: .35rem 0 0; color: #b7c1d2; font: 500 .78rem "Barlow Condensed", sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+.product-subtitle { margin: .35rem 0 0; color: #b7c1d2; font: 400 .78rem "Barlow Condensed", sans-serif; letter-spacing: .04em; text-transform: uppercase; }
 #install-title, #profiles-title, #mods-title { font-family: "Anton", Impact, sans-serif; }
 h2, h3 { font-family: "Fjalla One", "Barlow Condensed", sans-serif; }
 .version-label { font-family: "Fugaz One", Impact, sans-serif; }
 .mod-info, .mod-description, .notice p, .package-guide, .path-form, .empty-state { font-family: "Noto Sans", Arial, sans-serif; }
-.button, .tab-button, .local-badge, .eyebrow, .product-subtitle { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 600; }
+.button, .tab-button, .local-badge, .eyebrow { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 600; }
 :lang(ja), [lang="ja"] { font-family: "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif; }
 
 .profile-panel { margin-top: 1rem; }
