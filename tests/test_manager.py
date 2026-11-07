@@ -209,8 +209,12 @@ class ModManagerTests(unittest.TestCase):
         binaries.mkdir(parents=True, exist_ok=True)
         existing = binaries / "dwmapi.dll"
         existing.write_bytes(b"a different proxy DLL")
+        settings = binaries / "ue4ss" / "UE4SS-settings.ini"
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_bytes(b"[Existing UE4SS Settings]")
         payload = make_package({
             "GZPro/Binaries/Win64/dwmapi.dll": b"mod proxy DLL",
+            "GZPro/Binaries/Win64/ue4ss/UE4SS-settings.ini": b"[Mod UE4SS Settings]",
             "GZPro/Binaries/Win64/ue4ss/UE4SS.dll": b"UE4SS core",
             "GZPro/Binaries/Win64/ue4ss/Mods/CharacterPack/enabled.txt": b"",
             "GZPro/Binaries/Win64/ue4ss/Mods/CharacterPack/Scripts/main.lua": b"print('character mod')",
@@ -220,6 +224,7 @@ class ModManagerTests(unittest.TestCase):
         ue4ss_core = binaries / "ue4ss" / "UE4SS.dll"
 
         self.assertEqual(existing.read_bytes(), b"a different proxy DLL")
+        self.assertEqual(settings.read_bytes(), b"[Existing UE4SS Settings]")
         self.assertTrue(script.is_file())
         self.assertEqual(ue4ss_core.read_bytes(), b"UE4SS core")
 
@@ -235,6 +240,7 @@ class ModManagerTests(unittest.TestCase):
 
         self.manager.delete_mod(str(mod["id"]))
         self.assertEqual(existing.read_bytes(), b"a different proxy DLL")
+        self.assertEqual(settings.read_bytes(), b"[Existing UE4SS Settings]")
         self.assertFalse(script.exists())
 
     def test_ue4ss_only_package_uses_mod_folder_name(self) -> None:
