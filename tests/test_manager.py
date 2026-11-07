@@ -576,6 +576,31 @@ class ModManagerTests(unittest.TestCase):
         self.assertEqual(restored.game_dir, self.game_dir.resolve())
 
 
+    def test_unmanaged_mod_scan_cache_survives_restart_and_invalidates_on_folder_change(self) -> None:
+        external = self.paks_dir / "ExternalCacheTest.pak"
+        external.write_bytes(b"external")
+        first = self.manager.get_status()
+        self.assertEqual([item["stem"] for item in first["unmanaged_mods"]], ["ExternalCacheTest"])
+        self.assertTrue(self.manager.unmanaged_cache_path.is_file())
+
+        restored = ModManager(game_dir=self.game_dir, state_base=self.root / "manager-state")
+        original_scan = restored._scan_unmanaged_mods
+        calls = []
+        def counted_scan(managed_names):
+            calls.append(True)
+            return original_scan(managed_names)
+        restored._scan_unmanaged_mods = counted_scan
+        cached = restored.get_status()
+        self.assertEqual([item["stem"] for item in cached["unmanaged_mods"]], ["ExternalCacheTest"])
+        self.assertEqual(calls, [])
+
+        added = self.paks_dir / "NewExternalCacheTest.pak"
+        added.write_bytes(b"new")
+        refreshed = restored.get_status()
+        self.assertEqual({item["stem"] for item in refreshed["unmanaged_mods"]}, {"ExternalCacheTest", "NewExternalCacheTest"})
+        self.assertEqual(len(calls), 1)
+
+
 class ModManagerHttpTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
