@@ -174,10 +174,9 @@ async function requestJson(url, options = {}) {
 function renderStatus(status) {
   state.status = status;
   byId("game-dir").value = status.game_dir;
-  const ue4ssWin64Path = `${escapeHtml(status.game_dir)}\\GZPro\\Binaries\\Win64`;
   byId("compatibility-warning").innerHTML = status.ue4ss_installed
     ? "UE4SS is installed. Blueprint and UE4SS character/skin mods can load through the loader. Asset override mods (music, textures, models) do not need UE4SS."
-    : 'UE4SS is required for Blueprint and UE4SS character/skin mods. This game uses Unreal Engine 5.8 and needs the experimental build. <a href="https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest" target="_blank" rel="noopener noreferrer">Download the experimental UE4SS build</a>. Download the normal <code>UE4SS_v3.x.x</code> ZIP, then extract <code>dwmapi.dll</code> and the entire <code>ue4ss</code> folder into <code>' + ue4ssWin64Path + '</code> (the folder containing <code>GZProSteam-Win64-Shipping.exe</code>). Do not use the DEV ZIP. If <code>dwmapi.dll</code> already exists, do not overwrite it blindly; one proxy DLL can occupy that filename.';
+    : 'UE4SS is required for Blueprint and UE4SS character/skin mods. This game uses Unreal Engine 5.8, so use a compatible experimental UE4SS build. Asset override mods (music, textures, models) work without it. <a href="https://github.com/UE4SS-RE/RE-UE4SS/releases" target="_blank" rel="noopener noreferrer">Download UE4SS</a>.';
 
   const installStatus = byId("install-status");
   if (status.game_check_error) {
@@ -286,49 +285,33 @@ async function refreshStatus() {
   const stage = byId("status-check-stage");
   const elapsed = byId("status-check-elapsed");
   const startedAt = performance.now();
-  const controller = new AbortController();
   let polling = false;
-  let finished = false;
   indicator.hidden = false;
   stage.textContent = "Starting game and mod checks…";
   elapsed.textContent = "0s";
 
   const updateProgress = async () => {
-    if (polling || finished) return;
+    if (polling) return;
     polling = true;
-    const progressController = new AbortController();
-    const progressTimeout = setTimeout(() => progressController.abort(), 1500);
     try {
-      const progress = await requestJson("/api/status/progress", { signal: progressController.signal });
-      // Ignore the initial idle value. A progress failure must never block the main status request.
-      if (!finished && progress.active && progress.stage) stage.textContent = progress.stage;
+      const progress = await requestJson("/api/status/progress");
+      if (progress.stage) stage.textContent = progress.stage;
     } catch (_) {
-      // Progress is optional. The main status request remains authoritative.
+      // The main status request remains authoritative if progress polling fails.
     } finally {
-      clearTimeout(progressTimeout);
       polling = false;
-      if (!finished) elapsed.textContent = `${Math.floor((performance.now() - startedAt) / 1000)}s`;
+      elapsed.textContent = `${Math.floor((performance.now() - startedAt) / 1000)}s`;
     }
   };
 
+  await updateProgress();
   const progressTimer = setInterval(updateProgress, 500);
-  const timeoutTimer = setTimeout(() => controller.abort(), 30000);
-  // Do not await progress polling here. Start the actual status check immediately.
-  updateProgress();
   try {
-    renderStatus(await requestJson("/api/status", { signal: controller.signal }));
+    renderStatus(await requestJson("/api/status"));
   } catch (error) {
-    if (controller.signal.aborted) {
-      const lastStage = stage.textContent || "unknown step";
-      stage.textContent = `Timed out: ${lastStage}`;
-      setMessage(`The status check did not finish within 30 seconds. It stopped at: ${lastStage}. The window is still usable. Try Refresh once; if it happens again, send the last reported step with a bug report.`, true);
-    } else {
-      setMessage(`Could not read manager status: ${error.message}`, true);
-      stage.textContent = "Status check failed";
-    }
+    setMessage(`Could not read manager status: ${error.message}`, true);
+    stage.textContent = "Status check failed";
   } finally {
-    finished = true;
-    clearTimeout(timeoutTimer);
     clearInterval(progressTimer);
     elapsed.textContent = `${Math.floor((performance.now() - startedAt) / 1000)}s`;
     indicator.hidden = true;
