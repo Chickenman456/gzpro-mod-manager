@@ -17,7 +17,7 @@ A small, local-only Windows tool for safely staging pre-cooked `.pak` mods for *
    .\run.bat --game-dir "D:\SteamLibrary\steamapps\common\Godzilla Destroy All Monsters Melee Remastered"
    ```
 
-The Windows executable opens in its own desktop window (using WebView2 when available); if that runtime is unavailable, it falls back to the default browser. The header's **Check for updates** button checks the latest stable GitHub release and can download, verify when a release digest is published, install, and restart the executable. Mod backups and settings remain in `%LOCALAPPDATA%\\GZProModManager` and are not replaced by an update.\n\nThe launcher includes a **Changelog** tab that reads the latest commit history from this GitHub repository. An internet connection is required to load it.
+The Windows executable opens in a frameless desktop window with a custom title bar and window controls (using WebView2 when available); if that runtime is unavailable, it falls back to the default browser. The header's **Check for updates** button checks the latest stable GitHub release and can download, verify when a release digest is published, install, and restart the executable. Mod backups and settings remain in `%LOCALAPPDATA%\\GZProModManager` and are not replaced by an update.\n\nThe launcher includes a **Changelog** tab that reads the latest commit history from this GitHub repository. An internet connection is required to load it.
 
 The manager binds only to `127.0.0.1` and asks Windows for an available local port by default. The packaged desktop version includes pywebview; running from source can use the browser fallback.
 
@@ -28,7 +28,7 @@ Mods install from a single `.zip` containing the cooked IoStore container:
 - `<ModName>.utoc` + `<ModName>.ucas` — required; the cooked container holding the mod's assets.
 - `<ModName>.pak` — optional companion. If the zip has no `.pak`, the manager deploys a tiny verified stub `.pak` instead: this game only mounts a container when a same-named `.pak` sits next to it. The stub is parsed but never mounted, so its contents never reach the game.
 
-Cooked container files must share the same mod name and sit at the zip root. Root-level README, LICENSE, CHANGELOG, NOTICE, and CREDITS files are ignored; other unexpected files and nested folders are rejected.
+Standard cooked container files must share the same mod name and sit at the zip root. Combined skin-loader packages are also supported: one skin-data folder containing the matching .utoc/.ucas (and optional .pak), plus a GZSkinLoader folder containing Scripts/main.lua and enabled.txt. The skin containers are installed under Paks\\~mods and the loader files under GZPro\\Binaries\\Win64\\ue4ss\\Mods\\GZSkinLoader. The manager enables, disables, and deletes both components together. Root-level README, LICENSE, CHANGELOG, NOTICE, and CREDITS files are ignored; other unexpected paths are rejected.
 
 ### Optional launcher metadata
 
