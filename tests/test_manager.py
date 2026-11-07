@@ -69,6 +69,21 @@ class ModManagerTests(unittest.TestCase):
         return [base / f"{stem}{suffix}" for suffix in (".utoc", ".ucas", ".pak")]
 
 
+    def test_nexus_listing_parser_extracts_mod_cards_and_thumbnails(self) -> None:
+        from manager import NexusModListParser
+        parser = NexusModListParser()
+        parser.feed('''
+          <a href="/godzilladestroyallmonstersmeleeremastered/mods/42" title="Test Mod">
+            <img src="https://staticdelivery.nexusmods.com/test.jpg" alt="Test Mod">
+            <span>Test Mod</span>
+          </a>
+        ''')
+        self.assertEqual(len(parser.mods), 1)
+        mod = parser.mods["42"]
+        self.assertEqual(mod["title"], "Test Mod")
+        self.assertEqual(mod["url"], "https://www.nexusmods.com/godzilladestroyallmonstersmeleeremastered/mods/42")
+        self.assertEqual(mod["thumbnail"], "https://staticdelivery.nexusmods.com/test.jpg")
+
     def test_combined_burning_godzilla_package_installs_skin_and_ue4ss_loader(self) -> None:
         payload = make_package({
             "README.txt": b"Install both components",
