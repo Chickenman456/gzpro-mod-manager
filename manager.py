@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.11.2"
+APP_VERSION = "1.11.3"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -346,10 +346,15 @@ class ModManager:
                     "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/enabled.txt",
                 } if isinstance(target, str) else False
                 proxy_target = isinstance(target, str) and target.casefold() == "gzpro/binaries/win64/dwmapi.dll"
+                binary_dll_target = (
+                    isinstance(target, str)
+                    and target.rsplit("/", 1)[0].casefold() == "gzpro/binaries/win64"
+                    and target.casefold().endswith(".dll")
+                )
                 ue4ss_runtime_target = isinstance(target, str) and target.casefold().startswith("gzpro/binaries/win64/ue4ss/")
                 if (
                     not isinstance(target, str)
-                    or not (skin_target or loader_target or proxy_target or ue4ss_runtime_target)
+                    or not (skin_target or loader_target or proxy_target or binary_dll_target or ue4ss_runtime_target)
                     or "\\" in target
                     or any(part in {"", ".", ".."} for part in target.split("/"))
                     or Path(target).name != member["name"]
@@ -359,7 +364,7 @@ class ModManager:
                     if Path(member["name"]).suffix.casefold() not in MOD_MEMBER_SUFFIXES:
                         raise StateError("The mod recovery manifest contains an invalid skin file.")
                     _safe_mod_stem(Path(member["name"]).stem)
-                elif not (loader_target or proxy_target or ue4ss_runtime_target):
+                elif not (loader_target or proxy_target or binary_dll_target or ue4ss_runtime_target):
                     raise StateError("The mod recovery manifest contains an invalid loader file.")
         return mods
 
@@ -629,7 +634,7 @@ class ModManager:
             temporary.unlink(missing_ok=True)
 
     def _read_package_members(
-        self, archive: Path, skip_unsupported: bool = False
+        self, archive: Path, skip_unsupported: bool = False, install_dlls: bool = False
     ) -> tuple[str, list[dict[str, object]], str, str | None]:
         """Read cooked mods, skin-loader packages, and game-root UE4SS layouts."""
         try:
@@ -717,6 +722,20 @@ class ModManager:
                         skin_infos.append((info, name, parts[0]))
                     elif folded == "gzpro/binaries/win64/dwmapi.dll":
                         runtime_infos.append((info, name, "GZPro/Binaries/Win64/dwmapi.dll"))
+                    elif (
+                        Path(name).suffix.casefold() == ".dll"
+                        and (
+                            len(parts) == 1
+                            or (len(parts) == 2 and parts[0].casefold() == "win64")
+                            or (len(parts) == 3 and parts[0].casefold() == "binaries" and parts[1].casefold() == "win64")
+                            or (len(parts) == 5 and [part.casefold() for part in parts[:3]] == ["gzpro", "binaries", "win64"])
+                        )
+                    ):
+                        if not install_dlls:
+                            raise ManagerError(f"DLL_INSTALL_CONFIRM_REQUIRED:{name}")
+                        dll_name = parts[-1]
+                        _safe_mod_stem(Path(dll_name).stem)
+                        runtime_infos.append((info, name, f"GZPro/Binaries/Win64/{dll_name}"))
                     elif folded.startswith("gzpro/binaries/win64/ue4ss/"):
                         relative = name[len("GZPro/Binaries/Win64/ue4ss/"):]
                         if not relative or any(part in {"", ".", ".."} for part in relative.split("/")):
@@ -934,6 +953,7 @@ class ModManager:
         kind: str = MOD_KIND_OVERRIDE,
         replace_mod_id: str | None = None,
         skip_unsupported: bool = False,
+        install_dlls: bool = False,
     ) -> dict[str, object]:
         filename = _safe_mod_filename(filename)
         if kind not in MOD_KINDS:
@@ -967,7 +987,7 @@ class ModManager:
                     os.fsync(output_stream.fileno())
                 staged_archive.rename(archive_path)
 
-                stem, members, description, thumbnail = self._read_package_members(archive_path, skip_unsupported=skip_unsupported)
+                stem, members, description, thumbnail = self._read_package_members(archive_path, skip_unsupported=skip_unsupported, install_dlls=install_dlls)
                 if kind == MOD_KIND_OVERRIDE and stem.casefold() in GAME_CONTAINER_STEMS:
                     raise ManagerError(
                         f"The mod name {stem} is reserved by the game itself."
@@ -1882,8 +1902,9 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
         replace_mod_id = self.headers.get("X-Replace-Mod-Id")
         try:
             skip_unsupported = self.headers.get("X-Skip-Unsupported", "").strip().casefold() == "true"
+            install_dlls = self.headers.get("X-Install-Dll-Anyway", "").strip().casefold() == "true"
             result = self.manager.install_mod(
-                self.rfile, filename, length, kind, replace_mod_id, skip_unsupported
+                self.rfile, filename, length, kind, replace_mod_id, skip_unsupported, install_dlls
             )
         except ManagerError:
             self.close_connection = True
