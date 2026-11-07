@@ -458,6 +458,40 @@ class ModManagerTests(unittest.TestCase):
         mod = self.install(payload=payload)
         self.assertEqual(mod["stem"], "CharacterPack")
 
+    def test_run_anyway_installs_dlls_into_game_binary_folder(self) -> None:
+        payload = make_package({
+            "dwmapi.dll": b"proxy loader",
+            "Win64/ExtraLoader.dll": b"additional loader",
+        })
+        archive = self.root / "DllPackage.zip"
+        archive.write_bytes(payload)
+        with self.assertRaises(ManagerError) as raised:
+            self.manager._read_package_members(archive)
+        self.assertIn("DLL_INSTALL_CONFIRM_REQUIRED:", str(raised.exception))
+
+        mod = self.manager.install_mod(
+            io.BytesIO(payload), "DllPackage.zip", len(payload), "override",
+            None, False, True,
+        )
+        binaries = self.game_dir / "GZPro" / "Binaries" / "Win64"
+        self.assertEqual((binaries / "dwmapi.dll").read_bytes(), b"proxy loader")
+        self.assertEqual((binaries / "ExtraLoader.dll").read_bytes(), b"additional loader")
+        self.assertTrue(mod["requires_ue4ss"])
+        self.assertEqual(mod["file_count"], 2)
+
+        self.manager.set_mod_enabled(str(mod["id"]), False)
+        self.assertFalse((binaries / "dwmapi.dll").exists())
+        self.assertFalse((binaries / "ExtraLoader.dll").exists())
+        self.manager.set_mod_enabled(str(mod["id"]), True)
+        self.assertEqual((binaries / "ExtraLoader.dll").read_bytes(), b"additional loader")
+
+    def test_run_anyway_does_not_allow_arbitrary_non_dll_files(self) -> None:
+        payload = make_package({"scripts/anything.exe": b"not a DLL"})
+        archive = self.root / "UnsupportedExecutable.zip"
+        archive.write_bytes(payload)
+        with self.assertRaises(ManagerError):
+            self.manager._read_package_members(archive, install_dlls=True)
+
     def test_rejects_packages_with_folder_paths(self) -> None:
         payload = make_package({"nested/TestMod.utoc": b"toc", "TestMod.ucas": b"cas"})
         with self.assertRaises(ManagerError):
