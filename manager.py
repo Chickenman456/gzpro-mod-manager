@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.11.5"
+APP_VERSION = "1.12.0"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -53,6 +53,18 @@ UE4SS_RELATIVE_FILES = (
     Path("ue4ss") / "UE4SS.dll",
 )
 GAME_CHECK_LOCK = threading.Lock()
+STATUS_PROGRESS_LOCK = threading.Lock()
+STATUS_PROGRESS: dict[str, object] = {"active": False, "stage": "Idle"}
+
+
+def _set_status_progress(stage: str, active: bool = True) -> None:
+    with STATUS_PROGRESS_LOCK:
+        STATUS_PROGRESS.update({"active": active, "stage": stage})
+
+
+def _get_status_progress() -> dict[str, object]:
+    with STATUS_PROGRESS_LOCK:
+        return dict(STATUS_PROGRESS)
 
 # A minimal but valid .pak (486 bytes, produced by UnrealPak 5.8) holding one
 # inert marker file. This game only mounts a .utoc/.ucas IoStore container when
@@ -1499,74 +1511,86 @@ class ModManager:
         return sorted(grouped.values(), key=lambda group: (str(group["location"]).casefold(), str(group["stem"]).casefold()))
 
     def get_status(self) -> dict[str, object]:
+        _set_status_progress("Waiting for the manager status check…")
         with self._lock:
-            game_valid = (
-                self.game_dir.is_dir()
-                and self.game_executable.is_file()
-                and self.paks_dir.is_dir()
-            )
-            game_running: bool | None = None
-            game_check_error = None
-            if game_valid:
-                try:
-                    game_running = self._is_game_running()
-                except StateError as error:
-                    game_check_error = str(error)
-
-            mods = self._read_manifest()
-            listed_mods = []
-            managed_names: set[str] = set()
-            for record in mods:
-                for member in record["members"]:
-                    managed_names.add(str(member["name"]).casefold())
-                listed_mods.append(
-                    self._describe_mod(record, self._archive_path(record))
+            try:
+                _set_status_progress("Checking the game folder and required files…")
+                game_valid = (
+                    self.game_dir.is_dir()
+                    and self.game_executable.is_file()
+                    and self.paks_dir.is_dir()
                 )
+                game_running: bool | None = None
+                game_check_error = None
+                if game_valid:
+                    _set_status_progress("Checking whether GZPro is running…")
+                    try:
+                        game_running = self._is_game_running()
+                    except StateError as error:
+                        game_check_error = str(error)
 
-            cache_signature = self._unmanaged_cache_signature()
-            unmanaged = self._read_unmanaged_cache(cache_signature)
-            if unmanaged is None:
-                unmanaged = self._scan_unmanaged_mods(managed_names)
-                self._write_unmanaged_cache(cache_signature, unmanaged)
+                _set_status_progress("Reading your managed mod list…")
+                mods = self._read_manifest()
+                listed_mods = []
+                managed_names: set[str] = set()
+                total_mods = len(mods)
+                for index, record in enumerate(mods, start=1):
+                    _set_status_progress(f"Checking installed files for mod {index} of {total_mods}…")
+                    for member in record["members"]:
+                        managed_names.add(str(member["name"]).casefold())
+                    listed_mods.append(
+                        self._describe_mod(record, self._archive_path(record))
+                    )
 
-            binaries_dir = self.game_executable.parent
-            ue4ss_installed = game_valid and all(
-                (binaries_dir / relative).is_file() for relative in UE4SS_RELATIVE_FILES
-            )
+                cache_signature = self._unmanaged_cache_signature()
+                unmanaged = self._read_unmanaged_cache(cache_signature)
+                if unmanaged is None:
+                    _set_status_progress("Scanning Paks and LogicMods for manually installed mods…")
+                    unmanaged = self._scan_unmanaged_mods(managed_names)
+                    self._write_unmanaged_cache(cache_signature, unmanaged)
+                else:
+                    _set_status_progress("Using the saved manual-mod scan…")
 
-            return {
-                "game_dir": str(self.game_dir),
-                "game_valid": game_valid,
-                "game_executable": str(self.game_executable),
-                "paks_dir": str(self.paks_dir),
-                "logic_mods_dir": str(self.logic_mods_dir),
-                "logic_mods_exists": self.logic_mods_dir.is_dir(),
-                "game_running": game_running,
-                "game_check_error": game_check_error,
-                "mods": listed_mods,
-                "profiles": self._read_profiles()["profiles"],
-                "active_profile_id": self._read_profiles()["active_profile_id"],
-                "unmanaged_mods": unmanaged,
-                "loader_status": (
-                    "verified"
-                    if game_valid
-                    else "unknown"
-                ),
-                "ue4ss_installed": ue4ss_installed,
-                "warning": (
-                    "Mods load through UE4SS's Blueprint mod loader; that path is "
-                    "verified working on this game build. The manager deploys cooked "
-                    "IoStore mod packages (.utoc/.ucas plus a companion .pak) into "
-                    "LogicMods and never edits the game's original archives. It does "
-                    "not install UE4SS for you."
-                    if ue4ss_installed
-                    else "UE4SS is not detected in the game's Win64 folder. Mods are "
-                    "staged safely, but nothing will load until UE4SS (with "
-                    "BPModLoaderMod) is installed there. The manager never edits the "
-                    "game's original archives."
-                ),
-            }
+                _set_status_progress("Checking UE4SS files…")
+                binaries_dir = self.game_executable.parent
+                ue4ss_installed = game_valid and all(
+                    (binaries_dir / relative).is_file() for relative in UE4SS_RELATIVE_FILES
+                )
+                profiles = self._read_profiles()
 
+                result = {
+                    "game_dir": str(self.game_dir),
+                    "game_valid": game_valid,
+                    "game_executable": str(self.game_executable),
+                    "paks_dir": str(self.paks_dir),
+                    "logic_mods_dir": str(self.logic_mods_dir),
+                    "logic_mods_exists": self.logic_mods_dir.is_dir(),
+                    "game_running": game_running,
+                    "game_check_error": game_check_error,
+                    "mods": listed_mods,
+                    "profiles": profiles["profiles"],
+                    "active_profile_id": profiles["active_profile_id"],
+                    "unmanaged_mods": unmanaged,
+                    "loader_status": "verified" if game_valid else "unknown",
+                    "ue4ss_installed": ue4ss_installed,
+                    "warning": (
+                        "Mods load through UE4SS's Blueprint mod loader; that path is "
+                        "verified working on this game build. The manager deploys cooked "
+                        "IoStore mod packages (.utoc/.ucas plus a companion .pak) into "
+                        "LogicMods and never edits the game's original archives. It does "
+                        "not install UE4SS for you."
+                        if ue4ss_installed
+                        else "UE4SS is not detected in the game's Win64 folder. Mods are "
+                        "staged safely, but nothing will load until UE4SS (with "
+                        "BPModLoaderMod) is installed there. The manager never edits the "
+                        "game's original archives."
+                    ),
+                }
+                _set_status_progress("Ready", active=False)
+                return result
+            except Exception:
+                _set_status_progress("Status check failed", active=False)
+                raise
 
 
 def get_latest_release() -> dict[str, object]:
@@ -1776,6 +1800,9 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json(get_latest_release())
             except ManagerError as error:
                 self._send_manager_error(error)
+            return
+        if self.path == "/api/status/progress":
+            self._send_json(_get_status_progress())
             return
         if self.path == "/api/status":
             try:
