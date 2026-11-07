@@ -72,6 +72,7 @@ async function checkForUpdates() {
   button.disabled = true;
   panel.hidden = false;
   install.hidden = true;
+  byId("update-spinner").hidden = false;
   title.textContent = "Checking GitHub for updates…";
   details.textContent = "";
   try {
@@ -91,6 +92,7 @@ async function checkForUpdates() {
     title.textContent = "Could not check for updates.";
     details.textContent = error.message;
   } finally {
+    byId("update-spinner").hidden = true;
     button.disabled = false;
   }
 }
@@ -99,6 +101,7 @@ async function installUpdate() {
   if (!latestRelease?.update_available) return;
   if (!window.confirm(`Download and install GZPro Mod Manager v${latestRelease.latest_version}? The application will close and reopen when the update is ready.`)) return;
   byId("install-update").disabled = true;
+  byId("update-spinner").hidden = false;
   byId("update-title").textContent = "Downloading and preparing update…";
   byId("update-details").textContent = "Keep this window open until the download has been prepared.";
   try {
@@ -106,6 +109,7 @@ async function installUpdate() {
     byId("update-title").textContent = `Installing v${result.version}…`;
     byId("update-details").textContent = "The manager will close and restart automatically.";
   } catch (error) {
+    byId("update-spinner").hidden = true;
     byId("update-title").textContent = "Update could not be installed.";
     byId("update-details").textContent = error.message;
     byId("install-update").disabled = false;
