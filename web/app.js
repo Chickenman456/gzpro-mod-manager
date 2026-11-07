@@ -165,6 +165,19 @@ function renderStatus(status) {
     installStatus.classList.remove("error");
   }
 
+  const profiles = status.profiles || [];
+  const profileSelect = byId("profile-select");
+  const selectedProfile = profileSelect.value;
+  profileSelect.innerHTML = profiles.length
+    ? profiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)}${profile.id === status.active_profile_id ? " · Active" : ""}</option>`).join("")
+    : '<option value="">No profiles saved</option>';
+  if (profiles.some((profile) => profile.id === selectedProfile)) profileSelect.value = selectedProfile;
+  else if (status.active_profile_id) profileSelect.value = status.active_profile_id;
+  byId("apply-profile").disabled = state.busy || !profileSelect.value || !status.game_valid || status.game_running || Boolean(status.game_check_error);
+  byId("delete-profile").disabled = state.busy || !profileSelect.value;
+  byId("profile-status").textContent = status.active_profile_id
+    ? `Active profile: ${profiles.find((profile) => profile.id === status.active_profile_id)?.name || "Saved profile"}`
+    : "No profile is currently active. Saving captures the mods that are enabled right now.";
   const modsElement = byId("mods");
   if (!status.mods.length) {
     modsElement.innerHTML = `<p class="empty-state">No mods are managed yet.</p>`;
@@ -355,6 +368,45 @@ async function changeModState(modId, action) {
   }
 }
 
+byId("profile-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = byId("profile-name");
+  const name = input.value.trim();
+  if (!name) return;
+  try {
+    await requestJson("/api/profiles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    input.value = "";
+    setMessage(`Saved profile "${name}" from the current enabled mods.`);
+    await refreshStatus();
+  } catch (error) { setMessage(`Could not save profile: ${error.message}`, true); }
+});
+byId("apply-profile").addEventListener("click", async () => {
+  const id = byId("profile-select").value;
+  if (!id) return;
+  if (!window.confirm("Apply this profile? All managed mods not included in it will be disabled, and its selected mods will be enabled.")) return;
+  state.busy = true;
+  renderStatus(state.status);
+  setMessage("Applying mod profile…");
+  try {
+    await requestJson(`/api/profiles/${encodeURIComponent(id)}/apply`, { method: "POST" });
+    setMessage("Profile applied. Mod backups were preserved.");
+  } catch (error) { setMessage(`Could not apply profile: ${error.message}`, true); }
+  finally { state.busy = false; await refreshStatus(); }
+});
+byId("delete-profile").addEventListener("click", async () => {
+  const id = byId("profile-select").value;
+  const profile = state.status?.profiles?.find((item) => item.id === id);
+  if (!id || !profile || !window.confirm(`Delete the saved profile "${profile.name}"? This does not delete or change any mods.`)) return;
+  try {
+    await requestJson(`/api/profiles/${encodeURIComponent(id)}/delete`, { method: "POST" });
+    setMessage(`Deleted profile "${profile.name}".`);
+    await refreshStatus();
+  } catch (error) { setMessage(`Could not delete profile: ${error.message}`, true); }
+});
+byId("profile-select").addEventListener("change", () => {
+  byId("apply-profile").disabled = !byId("profile-select").value || state.busy || !state.status?.game_valid || state.status?.game_running || Boolean(state.status?.game_check_error);
+  byId("delete-profile").disabled = !byId("profile-select").value || state.busy;
+});
 byId("check-updates").addEventListener("click", checkForUpdates);
 byId("install-update").addEventListener("click", installUpdate);
 byId("tab-mods").addEventListener("click", () => selectTab("mods"));
