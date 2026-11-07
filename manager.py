@@ -1545,7 +1545,7 @@ class ModManager:
                     _set_status_progress(stage)
                     valid, error = _run_check_with_timeout(check)
                     if error:
-                        game_check_error = error
+                        game_check_error = f"{stage} {error}"
                         game_valid = False
                         break
                     if not valid:
