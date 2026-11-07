@@ -127,7 +127,7 @@ function explainError(message) {
     [/unsupported file or folder|unsupported file in the package|unsupported game paks path/, "The ZIP contains a file or folder layout the manager does not recognize.", "Use the mod's original ZIP. UE4SS packages must keep the GZPro/Binaries/Win64/dwmapi.dll and GZPro/Binaries/Win64/ue4ss folder paths. Do not rename or flatten the folders."],
     [/not a valid \.zip|upload a single \.zip|selected \.zip package is empty/, "The selected file is not a complete ZIP archive.", "Download the ZIP again from the mod page. Do not extract it before importing."],
     [/must contain the cooked mod's \.utoc and \.ucas|without a container|no supported mod files/, "The package is missing the cooked game files or a recognized UE4SS mod folder.", "Check the mod's installation instructions. A cooked asset mod needs matching .utoc and .ucas files; a UE4SS mod needs its files under the ue4ss folder."],
-    [/already exists in|already present but differs|not overwritten|does not match/, "A file with that name is already in the game folder, and its contents do not match this package.", "The manager stopped to protect the existing file. Check whether another mod or UE4SS installation already uses it. Do not overwrite DLLs manually unless you know which version is required."],
+    [/already exists in|already exists and differs|already present but differs|will not overwrite|not overwritten|does not match/, "A file with that name is already in the game folder, and its contents do not match this package.", "The manager stopped to protect the existing file. Check whether another mod or UE4SS installation already uses it. Do not overwrite DLLs manually unless you know which version is required."],
     [/close the game before|game must be closed|game is running/, "The game is currently running. Windows can lock files while the game is open.", "Exit the game completely, wait a few seconds, then retry the import or action."],
     [/game folder does not exist|could not find .* in that game folder|paks folder is missing|game installation/, "The selected folder is not the game's valid installation directory.", "Select the folder that contains the GZPro folder, not GZPro itself or the Binaries folder."],
     [/permission|access is denied|winerror 5/, "Windows is preventing the manager from writing to the game folder or its backup folder.", "Close the game and other mod tools. Check that the game folder and %LOCALAPPDATA%\\GZProModManager are writable. Avoid installing the manager inside a protected Windows folder."],
@@ -336,7 +336,7 @@ async function importFile(file) {
   const kind = document.querySelector('input[name="mod-kind"]:checked')?.value || "override";
   const target = kind === "blueprint" ? "the game's LogicMods folder" : "the game's Paks folder as GZPro-" + file.name.replace(/\.zip$/i, "") + ".*";
   if (!window.confirm(
-    `Deploy ${file.name} into ${target}? The manager keeps a hash-checked backup and never overwrites existing files.${kind === "blueprint" ? " Loading it in-game requires UE4SS." : ""}`
+    `Deploy ${file.name} into ${target}? The manager keeps a hash-checked backup and never overwrites different existing files. UE4SS packages can install a Windows DLL and scripts into the game folder. Only install ZIPs from sources you trust.${kind === "blueprint" ? " Loading it in-game requires UE4SS." : ""}`
   )) return;
   state.busy = true;
   byId("upload-progress").hidden = false;
