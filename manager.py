@@ -1472,6 +1472,11 @@ class DesktopWindowApi:
                 _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
 
             old_proc = get_long(hwnd, -4)
+            # WS_THICKFRAME lets Windows complete the resize system command
+            # after our WM_NCHITTEST returns an edge or corner code.
+            style = get_long(hwnd, -16)
+            set_long(hwnd, -16, style | 0x00040000)
+            user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0027)
             edge = 8
             WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t)
 
