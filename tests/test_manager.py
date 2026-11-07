@@ -70,6 +70,32 @@ class ModManagerTests(unittest.TestCase):
 
 
 
+    def test_mod_display_name_can_be_renamed_without_changing_deployed_files(self) -> None:
+        mod = self.install()
+        renamed = self.manager.rename_mod(mod["id"], "My Preferred Name")
+        status = self.manager.get_status()
+        saved = next(item for item in status["mods"] if item["id"] == mod["id"])
+        self.assertEqual(renamed["display_name"], "My Preferred Name")
+        self.assertEqual(saved["display_name"], "My Preferred Name")
+        self.assertEqual(self.deployed()[0].read_bytes(), b"cooked toc")
+
+    def test_duplicate_import_offers_replace_and_replacement_keeps_mod_id(self) -> None:
+        original = self.install()
+        updated_payload = make_package({
+            "TestMod.utoc": b"updated toc",
+            "TestMod.ucas": b"updated container",
+        })
+        with self.assertRaises(ConflictError) as raised:
+            self.manager.install_mod(io.BytesIO(updated_payload), "TestMod-v2.zip", len(updated_payload), "blueprint")
+        self.assertTrue(str(raised.exception).startswith("MOD_REPLACE_REQUIRED:"))
+        replaced = self.manager.install_mod(
+            io.BytesIO(updated_payload), "TestMod-v2.zip", len(updated_payload), "blueprint", original["id"]
+        )
+        self.assertEqual(replaced["id"], original["id"])
+        self.assertEqual(self.deployed()[0].read_bytes(), b"updated toc")
+        self.assertEqual(self.deployed()[1].read_bytes(), b"updated container")
+        self.assertEqual(len(self.manager.get_status()["mods"]), 1)
+
     def test_combined_burning_godzilla_package_installs_skin_and_ue4ss_loader(self) -> None:
         payload = make_package({
             "README.txt": b"Install both components",
