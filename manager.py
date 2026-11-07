@@ -547,6 +547,24 @@ class ModManager:
         if self._is_game_running():
             raise ConflictError("Close the game before enabling or disabling a mod.")
 
+    def open_mod_location(self) -> dict[str, object]:
+        """Open the game's Paks directory, which contains LogicMods and ~mods."""
+        if not self.paks_dir.is_dir():
+            raise ManagerError("The game's Paks folder was not found. Check the selected game installation.")
+        if sys.platform != "win32":
+            raise StateError("Opening the mod install folder from the manager is supported on Windows only.")
+        try:
+            subprocess.Popen(
+                ["explorer.exe", str(self.paks_dir)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
+        except OSError as error:
+            raise ManagerError(f"Could not open the mod install folder: {error}") from error
+        return {"opened": True, "path": str(self.paks_dir)}
+
     def launch_game(self) -> dict[str, object]:
         if sys.platform != "win32":
             raise StateError("Launching the game from the manager is supported on Windows only.")
@@ -1594,6 +1612,9 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
                 return
             if self.path == "/api/game/launch":
                 self._send_json(self.manager.launch_game())
+                return
+            if self.path == "/api/game/open-mod-location":
+                self._send_json(self.manager.open_mod_location())
                 return
             if self.path == "/api/game-dir":
                 self._handle_game_dir()
