@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import base64
 import csv
 import hashlib
@@ -32,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.6.1"
+APP_VERSION = "1.7.0"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -1299,7 +1300,7 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
             self._send_manager_error(error)
             return
         self.log_error("Unhandled request error: %s", error)
-        self._send_json({"error": "The request failed. Check the manager terminal for details."}, 500)
+        self._send_json({"error": "The request failed. Restart the manager and try again."}, 500)
 
     def do_GET(self) -> None:
         if self.path == "/api/update/check":
@@ -1418,10 +1419,12 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
         self._send_json(result, 201)
 
     def log_message(self, format_string: str, *args: object) -> None:
-        sys.stderr.write(
-            f"[{self.log_date_time_string()}] {self.address_string()} "
-            f"{format_string % args}\n"
-        )
+        stream = getattr(sys, "stderr", None)
+        if stream is not None:
+            stream.write(
+                f"[{self.log_date_time_string()}] {self.address_string()} "
+                f"{format_string % args}\n"
+            )
 
 
 def create_server(manager: ModManager, port: int = 8766) -> ThreadingHTTPServer:
@@ -1439,6 +1442,23 @@ class DesktopWindowApi:
     def __init__(self) -> None:
         self.window = None
         self._maximized = False
+
+    def enable_resize(self) -> None:
+        """Restore native Windows resize hit targets on the frameless window."""
+        if not self.window or sys.platform != "win32":
+            return
+        try:
+            handle = self.window.native.Handle
+            hwnd = int(handle.ToInt64()) if hasattr(handle, "ToInt64") else int(handle)
+            user32 = ctypes.windll.user32
+            get_style = user32.GetWindowLongPtrW
+            get_style.restype = ctypes.c_ssize_t
+            style = get_style(hwnd, -16)
+            style |= 0x00040000 | 0x00020000 | 0x00010000 | 0x00080000
+            user32.SetWindowLongPtrW(hwnd, -16, style)
+            user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0027)
+        except Exception:
+            pass
 
     def minimize(self) -> None:
         if self.window:
@@ -1479,12 +1499,17 @@ def main() -> int:
         manager = ModManager(game_dir=args.game_dir)
         server = create_server(manager, args.port)
     except (OSError, ManagerError) as error:
-        print(f"Could not start the mod manager: {error}", file=sys.stderr)
+        message = f"Could not start the mod manager: {error}"
+        if sys.platform == "win32" and getattr(sys, "frozen", False):
+            ctypes.windll.user32.MessageBoxW(None, message, "GZPro Mod Manager", 0x10)
+        elif getattr(sys, "stderr", None) is not None:
+            print(message, file=sys.stderr)
         return 1
 
     address = f"http://127.0.0.1:{server.server_port}/"
-    print(f"GZPro Mod Manager v{APP_VERSION} is running at {address}", flush=True)
-    print("Close the app window to stop the manager.", flush=True)
+    if getattr(sys, "stdout", None) is not None:
+        print(f"GZPro Mod Manager v{APP_VERSION} is running at {address}", flush=True)
+        print("Close the app window to stop the manager.", flush=True)
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     try:
@@ -1494,15 +1519,17 @@ def main() -> int:
                 api = DesktopWindowApi()
                 window = webview.create_window(
                     f"GZPro Mod Manager v{APP_VERSION}", address + "?desktop=1",
-                    width=1180, height=850, min_size=(760, 600),
+                    width=1180, height=850, min_size=(760, 600), resizable=True,
                     frameless=True, easy_drag=False, js_api=api,
-                    background_color="#13191b",
+                    background_color="#13191b", shadow=True,
                 )
                 api.window = window
+                window.events.before_show += api.enable_resize
                 webview.start()
                 return 0
             except Exception as error:
-                print(f"Desktop window unavailable ({error}); opening the browser instead.", flush=True)
+                if getattr(sys, "stdout", None) is not None:
+                    print(f"Desktop window unavailable ({error}); opening the browser instead.", flush=True)
                 webbrowser.open(address)
         server_thread.join()
     except KeyboardInterrupt:
