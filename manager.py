@@ -32,7 +32,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.6.0"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -319,6 +319,21 @@ class ModManager:
                         "The mod recovery manifest contains an invalid entry. No files were changed."
                     )
                 _safe_member_name(member["name"])
+                if "target" not in member:
+                    continue
+                target = member["target"]
+                allowed_prefixes = (
+                    "GZPro/Content/Paks/~mods/",
+                    "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/",
+                )
+                if (
+                    not isinstance(target, str)
+                    or not target.startswith(allowed_prefixes)
+                    or "\\" in target
+                    or any(part in {"", ".", ".."} for part in target.split("/"))
+                    or Path(target).name != member["name"]
+                ):
+                    raise StateError("The mod recovery manifest contains an invalid target path.")
         return mods
 
     def _write_manifest(self, mods: list[dict[str, object]]) -> None:
@@ -507,31 +522,49 @@ class ModManager:
                     and not _is_package_document(info.filename)
                 ]
                 if not cooked_infos:
-                    raise ManagerError("The package contains no cooked mod files.")
-                stem: str | None = None
+                    raise ManagerError("The package contains no supported mod files.")
+
+                # Combined skin packages may contain a single skin-data folder and
+                # the GZSkinLoader script tree. All other folder layouts are rejected.
+                normalized = [(info, info.filename.replace(chr(92), "/").lstrip("./")) for info in cooked_infos]
+                has_loader = any(name.startswith("GZSkinLoader/") for _, name in normalized)
+                skin_infos = []
+                loader_infos = []
+                for info, name in normalized:
+                    parts = name.split("/")
+                    if len(parts) == 1 and Path(name).suffix.casefold() in MOD_MEMBER_SUFFIXES:
+                        skin_infos.append((info, name, None))
+                    elif len(parts) == 2 and Path(parts[1]).suffix.casefold() in MOD_MEMBER_SUFFIXES:
+                        skin_infos.append((info, name, parts[0]))
+                    elif (
+                        len(parts) == 3
+                        and parts[0].casefold() == "gzskinloader"
+                        and parts[1].casefold() == "scripts"
+                        and parts[2].casefold() == "main.lua"
+                    ) or (
+                        len(parts) == 2
+                        and parts[0].casefold() == "gzskinloader"
+                        and parts[1].casefold() == "enabled.txt"
+                    ):
+                        loader_infos.append((info, name))
+                    else:
+                        raise ManagerError(f"Unsupported file or folder in the package: {name}")
+                if has_loader and not loader_infos:
+                    raise ManagerError("GZSkinLoader must include Scripts/main.lua or enabled.txt.")
+                if has_loader and not any(name.casefold() == "gzskinloader/scripts/main.lua" for _, name in loader_infos):
+                    raise ManagerError("GZSkinLoader must include Scripts/main.lua.")
+
+                skin_stem = None
                 suffixes: set[str] = set()
                 members: list[dict[str, object]] = []
                 total_size = 0
-                for info in cooked_infos:
-                    name = info.filename
-                    if Path(name).name != name or "/" in name or "\\" in name:
-                        raise ManagerError("The package must contain only bare files, not folders.")
-                    suffix = Path(name).suffix.casefold()
-                    if suffix not in MOD_MEMBER_SUFFIXES:
-                        raise ManagerError(
-                            f"Unsupported file in the package: {name}. A mod package holds only .utoc, .ucas, and an optional .pak, plus INFO.txt and THUMB image metadata."
-                        )
-                    if stem is None:
-                        stem = _safe_mod_stem(Path(name).stem)
-                    elif Path(name).stem != stem:
-                        raise ManagerError("Every cooked file in the package must share the same mod name.")
-                    if suffix in suffixes:
-                        raise ManagerError(f"The package contains more than one {suffix} file.")
-                    suffixes.add(suffix)
+
+                def add_member(info, entry, deployed_name, target=None):
+                    nonlocal total_size
                     if info.file_size <= 0:
-                        raise ManagerError(f"{name} in the package is empty.")
+                        raise ManagerError(f"{entry} in the package is empty.")
                     if info.file_size > MAX_MOD_SIZE:
-                        raise ManagerError(f"{name} exceeds the 8 GiB size limit.")
+                        raise ManagerError(f"{entry} exceeds the 8 GiB size limit.")
                     total_size += info.file_size
                     if total_size > MAX_MOD_SIZE:
                         raise ManagerError("The package's contents exceed the 8 GiB size limit.")
@@ -539,18 +572,62 @@ class ModManager:
                     with package.open(info) as member_stream:
                         while chunk := member_stream.read(1024 * 1024):
                             digest.update(chunk)
-                    members.append({"entry": name, "sha256": digest.hexdigest(), "size": info.file_size})
+                    item = {"entry": entry, "name": deployed_name, "sha256": digest.hexdigest(), "size": info.file_size}
+                    if target:
+                        item["target"] = target
+                    members.append(item)
+
+                for info, entry, folder in skin_infos:
+                    suffix = Path(entry).suffix.casefold()
+                    if suffix not in MOD_MEMBER_SUFFIXES:
+                        raise ManagerError(f"Unsupported file in the package: {entry}")
+                    current_stem = _safe_mod_stem(folder or Path(entry).stem)
+                    if skin_stem is None:
+                        skin_stem = current_stem
+                    elif current_stem != skin_stem or Path(entry).stem != skin_stem:
+                        raise ManagerError("The skin container files and their folder must use the same mod name.")
+                    if suffix in suffixes:
+                        raise ManagerError(f"The package contains more than one {suffix} file.")
+                    suffixes.add(suffix)
+                    add_member(
+                        info, entry, skin_stem + suffix,
+                        f"GZPro/Content/Paks/~mods/{skin_stem}{suffix}",
+                    )
                 if not REQUIRED_MEMBER_SUFFIXES.issubset(suffixes):
                     raise ManagerError("The package must contain the cooked mod's .utoc and .ucas files.")
                 if ".pak" not in suffixes:
                     members.append({
-                        "entry": None, "suffix": ".pak",
+                        "entry": None, "name": (skin_stem or "GZSkin") + ".pak",
+                        "target": f"GZPro/Content/Paks/~mods/{skin_stem or 'GZSkin'}.pak",
                         "sha256": hashlib.sha256(_STUB_PAK).hexdigest(),
                         "size": len(_STUB_PAK), "stub": True,
                     })
+                for info, entry in loader_infos:
+                    relative = entry.split("/", 1)[1]
+                    target = "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/" + relative
+                    add_member(info, entry, Path(relative).name, target)
+
+                stem = skin_stem or "GZSkinLoader"
+                if not skin_stem:
+                    raise ManagerError("The package must include the skin's .utoc and .ucas files.")
                 return stem, members, description, thumbnail
         except zipfile.BadZipFile as error:
             raise ManagerError("The uploaded file is not a valid .zip package.") from error
+
+    def _member_path(self, member: dict[str, object], fallback_dir: Path) -> Path:
+        target = member.get("target")
+        if not target:
+            return fallback_dir / str(member["name"])
+        parts = str(target).split("/")
+        destination = self.game_dir.joinpath(*parts)
+        current = self.game_dir
+        for part in parts[:-1]:
+            current = current / part
+            if current.is_symlink() or (hasattr(current, "is_junction") and current.is_junction()):
+                raise ConflictError(f"{current} is a link or junction; the manager will not write through it.")
+            if current.exists() and not current.is_dir():
+                raise ConflictError(f"{current} exists but is not a folder.")
+        return destination
 
     def _mod_target_dir(self, record: dict[str, object]) -> Path:
         if record["kind"] == MOD_KIND_OVERRIDE:
@@ -571,15 +648,14 @@ class ModManager:
         members: list[dict[str, object]],
         target_dir: Path,
     ) -> None:
-        location = "the game's Paks folder" if target_dir == self.paks_dir else "LogicMods"
         for member in members:
-            if self._existing_named_file(target_dir, str(member["name"])) is not None:
-                raise ConflictError(
-                    f"{member['name']} already exists in {location}; it was not overwritten."
-                )
+            destination = self._member_path(member, target_dir)
+            if self._existing_named_file(destination.parent, destination.name) is not None:
+                raise ConflictError(f"{destination.name} already exists in {destination.parent}; it was not overwritten.")
         with zipfile.ZipFile(archive) as package:
             for member in members:
-                destination = target_dir / str(member["name"])
+                destination = self._member_path(member, target_dir)
+                destination.parent.mkdir(parents=True, exist_ok=True)
                 if member.get("stub"):
                     self._copy_stream_to_game(
                         io.BytesIO(_STUB_PAK),
@@ -647,6 +723,8 @@ class ModManager:
 
                 deployed_stem = self._deployed_stem(stem, kind)
                 for member in members:
+                    if "target" in member:
+                        continue
                     suffix = (
                         str(member.get("suffix"))
                         if member.get("entry") is None
@@ -707,9 +785,8 @@ class ModManager:
             members = record["members"]
             present: dict[str, Path] = {}
             for member in members:
-                existing = self._existing_named_file(
-                    target_dir, str(member["name"])
-                )
+                destination = self._member_path(member, target_dir)
+                existing = self._existing_named_file(destination.parent, destination.name)
                 if existing is None:
                     continue
                 game_hash, game_size = _hash_file(existing)
@@ -718,16 +795,17 @@ class ModManager:
                         f"{existing.name} is already present but differs from this mod. "
                         "It was not overwritten."
                     )
-                present[str(member["name"])] = existing
+                present[str(member.get("target") or member["name"])] = existing
 
             if enabled:
                 missing = [
-                    member for member in members if str(member["name"]) not in present
+                    member for member in members if str(member.get("target") or member["name"]) not in present
                 ]
                 if missing:
                     with zipfile.ZipFile(archive) as package:
                         for member in missing:
-                            destination = target_dir / str(member["name"])
+                            destination = self._member_path(member, target_dir)
+                            destination.parent.mkdir(parents=True, exist_ok=True)
                             if member.get("stub"):
                                 self._copy_stream_to_game(
                                     io.BytesIO(_STUB_PAK),
@@ -746,7 +824,7 @@ class ModManager:
                 record["enabled"] = True
             else:
                 for member in members:
-                    installed = present.get(str(member["name"]))
+                    installed = present.get(str(member.get("target") or member["name"]))
                     if installed is not None:
                         installed.unlink()
                 record["enabled"] = False
@@ -779,7 +857,8 @@ class ModManager:
             target_dir = self._mod_target_dir(record)
             installed_files: list[Path] = []
             for member in record["members"]:
-                installed = self._existing_named_file(target_dir, str(member["name"]))
+                destination = self._member_path(member, target_dir)
+                installed = self._existing_named_file(destination.parent, destination.name)
                 if installed is None:
                     continue
                 game_hash, game_size = _hash_file(installed)
@@ -808,9 +887,8 @@ class ModManager:
         installed_count = 0
         conflict = False
         for member in members:
-            installed = self._existing_named_file(
-                target_dir, str(member["name"])
-            )
+            destination = self._member_path(member, target_dir)
+            installed = self._existing_named_file(destination.parent, destination.name)
             if installed is None:
                 continue
             installed_count += 1
@@ -1302,6 +1380,32 @@ def create_server(manager: ModManager, port: int = 8766) -> ThreadingHTTPServer:
     return server
 
 
+class DesktopWindowApi:
+    """Native window controls exposed to the custom Steam-style title bar."""
+
+    def __init__(self) -> None:
+        self.window = None
+        self._maximized = False
+
+    def minimize(self) -> None:
+        if self.window:
+            self.window.minimize()
+
+    def toggle_maximize(self) -> bool:
+        if not self.window:
+            return False
+        if self._maximized:
+            self.window.restore()
+        else:
+            self.window.maximize()
+        self._maximized = not self._maximized
+        return self._maximized
+
+    def close(self) -> None:
+        if self.window:
+            self.window.destroy()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Local, reversible GZPro mod staging tool.")
     parser.add_argument(
@@ -1334,10 +1438,14 @@ def main() -> int:
         if not args.no_browser:
             try:
                 import webview
-                webview.create_window(
-                    f"GZPro Mod Manager v{APP_VERSION}", address,
+                api = DesktopWindowApi()
+                window = webview.create_window(
+                    f"GZPro Mod Manager v{APP_VERSION}", address + "?desktop=1",
                     width=1180, height=850, min_size=(760, 600),
+                    frameless=True, easy_drag=False, js_api=api,
+                    background_color="#13191b",
                 )
+                api.window = window
                 webview.start()
                 return 0
             except Exception as error:
