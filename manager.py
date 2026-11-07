@@ -1310,6 +1310,9 @@ class ModManager:
                 installed = self._existing_named_file(destination.parent, destination.name)
                 if installed is None:
                     continue
+                if member.get("preserve_existing") and str(member.get("target") or "").casefold() == "gzpro/binaries/win64/dwmapi.dll":
+                    # This file belongs to the pre-existing UE4SS installation.
+                    continue
                 game_hash, game_size = _hash_file(installed)
                 if game_hash != member["sha256"] or game_size != member["size"]:
                     raise ConflictError(
