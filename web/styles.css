@@ -280,3 +280,10 @@ h2, h3 { font-family: "Fjalla One", "Barlow Condensed", sans-serif; }
 }
 body.file-dragging .drag-overlay { display: grid; }
 body.file-dragging #drop-zone { border-color: var(--accent, #e2a64c); }
+
+
+/* Startup status check: visible activity and the current backend stage. */
+.status-checking { display:flex; align-items:center; gap:.65rem; margin:.65rem 0; color:#e4b36d; font:500 .9rem "Barlow Condensed",sans-serif; }
+.status-checking[hidden] { display:none; }
+.status-checking .update-spinner { width:17px; height:17px; flex-basis:17px; border-width:2px; }
+.status-checking .muted { margin-left:auto; font-variant-numeric:tabular-nums; }
