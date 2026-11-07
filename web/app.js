@@ -99,7 +99,7 @@ async function installUpdate() {
   try {
     const result = await requestJson("/api/update/install", { method: "POST" });
     byId("update-title").textContent = `Installing v${result.version}…`;
-    byId("update-details").textContent = "The manager will close and restart automatically.";
+    byId("update-details").textContent = "The manager will close, install the update, and reopen. If the new version cannot start, the updater will restore the previous executable. The update log is saved in %LOCALAPPDATA%\\GZProModManager\\updates\\update-install.log.";
   } catch (error) {
     byId("update-spinner").hidden = true;
     byId("update-title").textContent = "Update could not be installed.";
