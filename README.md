@@ -27,7 +27,7 @@ The manager binds only to `127.0.0.1` and asks Windows for an available local po
 Mods install from a single `.zip` containing the cooked IoStore container:
 
 - `<ModName>.utoc` + `<ModName>.ucas` — required; the cooked container holding the mod's assets.
-- `<ModName>.pak` — optional companion. If the zip has no `.pak`, the manager deploys a tiny verified stub `.pak` instead: this game only mounts a container when a same-named `.pak` sits next to it. The stub is parsed but never mounted, so its contents never reach the game.
+- `<ModName>.pak` — optional companion. Character/skin packages may also contain additional uniquely named companion `.pak` files; each is preserved under its own filename. If the zip has no `.pak`, the manager deploys a tiny verified stub `.pak` instead: this game only mounts a container when a same-named `.pak` sits next to it. The stub is parsed but never mounted, so its contents never reach the game.
 
 Standard cooked container files must share the same mod name and sit at the zip root. Combined skin-loader packages are also supported: one skin-data folder containing the matching .utoc/.ucas (and optional .pak), plus a GZSkinLoader folder containing Scripts/main.lua and enabled.txt. The skin containers are installed under Paks\\~mods and the loader files under GZPro\\Binaries\\Win64\\ue4ss\\Mods\\GZSkinLoader. The manager enables, disables, and deletes both components together. Root-level README, LICENSE, CHANGELOG, NOTICE, and CREDITS files are ignored; other unexpected paths are rejected unless you approve the supported DLL-install prompt.
 
