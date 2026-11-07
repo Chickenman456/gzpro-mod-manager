@@ -179,11 +179,11 @@ function renderStatus(status) {
     : 'UE4SS is required for Blueprint and UE4SS character/skin mods. This game uses Unreal Engine 5.8, so use a compatible experimental UE4SS build. Asset override mods (music, textures, models) work without it. <a href="https://github.com/UE4SS-RE/RE-UE4SS/releases" target="_blank" rel="noopener noreferrer">Download UE4SS</a>.';
 
   const installStatus = byId("install-status");
-  if (!status.game_valid) {
-    installStatus.textContent = "Game install not found. Enter the folder that contains GZPro\\Binaries and GZPro\\Content.";
-    installStatus.classList.add("error");
-  } else if (status.game_check_error) {
+  if (status.game_check_error) {
     installStatus.textContent = status.game_check_error;
+    installStatus.classList.add("error");
+  } else if (!status.game_valid) {
+    installStatus.textContent = "Game install not found. Enter the folder that contains GZPro\\Binaries and GZPro\\Content.";
     installStatus.classList.add("error");
   } else if (status.game_running) {
     installStatus.textContent = "The game is running. Close it before enabling, disabling, or importing a mod.";
