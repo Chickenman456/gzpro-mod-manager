@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.12.1"
+APP_VERSION = "1.12.8"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -65,26 +65,6 @@ def _set_status_progress(stage: str, active: bool = True) -> None:
 def _get_status_progress() -> dict[str, object]:
     with STATUS_PROGRESS_LOCK:
         return dict(STATUS_PROGRESS)
-
-
-def _run_check_with_timeout(check, timeout: float = 8.0) -> tuple[bool, str | None]:
-    """Run a potentially blocking filesystem check without freezing the status API."""
-    finished = threading.Event()
-    outcome: list[tuple[bool, str | None]] = []
-
-    def run() -> None:
-        try:
-            outcome.append((bool(check()), None))
-        except Exception as error:
-            outcome.append((False, str(error)))
-        finally:
-            finished.set()
-
-    threading.Thread(target=run, daemon=True, name="GZProStatusPathCheck").start()
-    if not finished.wait(timeout):
-        return False, f"Timed out after {timeout:g} seconds while checking the game installation."
-    return outcome[0]
-
 
 # A minimal but valid .pak (486 bytes, produced by UnrealPak 5.8) holding one
 # inert marker file. This game only mounts a .utoc/.ucas IoStore container when
@@ -1534,25 +1514,14 @@ class ModManager:
         _set_status_progress("Waiting for the manager status check…")
         with self._lock:
             try:
-                game_valid = True
-                game_check_error = None
-                path_checks = (
-                    ("Checking the selected game folder…", lambda: self.game_dir.is_dir()),
-                    ("Checking the GZPro executable…", lambda: self.game_executable.is_file()),
-                    ("Checking the game's Paks folder…", lambda: self.paks_dir.is_dir()),
+                _set_status_progress("Checking the game folder and required files…")
+                game_valid = (
+                    self.game_dir.is_dir()
+                    and self.game_executable.is_file()
+                    and self.paks_dir.is_dir()
                 )
-                for stage, check in path_checks:
-                    _set_status_progress(stage)
-                    valid, error = _run_check_with_timeout(check)
-                    if error:
-                        game_check_error = f"{stage} {error}"
-                        game_valid = False
-                        break
-                    if not valid:
-                        game_valid = False
-                        break
-
                 game_running: bool | None = None
+                game_check_error = None
                 if game_valid:
                     _set_status_progress("Checking whether GZPro is running…")
                     try:
@@ -1564,54 +1533,30 @@ class ModManager:
                 mods = self._read_manifest()
                 listed_mods = []
                 managed_names: set[str] = set()
-                if game_check_error and not game_valid:
-                    # A timed-out filesystem probe must not be followed by more
-                    # potentially blocking reads from the same unavailable drive.
-                    unmanaged = []
-                else:
-                    total_mods = len(mods)
-                    for index, record in enumerate(mods, start=1):
-                        _set_status_progress(f"Checking installed files for mod {index} of {total_mods}…")
-                        for member in record["members"]:
-                            managed_names.add(str(member["name"]).casefold())
-                        listed_mods.append(
-                            self._describe_mod(record, self._archive_path(record))
-                        )
+                total_mods = len(mods)
+                for index, record in enumerate(mods, start=1):
+                    _set_status_progress(f"Checking installed files for mod {index} of {total_mods}…")
+                    for member in record["members"]:
+                        managed_names.add(str(member["name"]).casefold())
+                    listed_mods.append(
+                        self._describe_mod(record, self._archive_path(record))
+                    )
 
-                    _set_status_progress("Checking the mod-folder scan cache…")
-                    cache_signature = self._unmanaged_cache_signature()
-                    unmanaged = self._read_unmanaged_cache(cache_signature)
-                    if unmanaged is None:
-                        _set_status_progress("Scanning Paks and LogicMods for manually installed mods…")
-                        unmanaged = self._scan_unmanaged_mods(managed_names)
-                        self._write_unmanaged_cache(cache_signature, unmanaged)
-                    else:
-                        _set_status_progress("Using the saved manual-mod scan…")
+                cache_signature = self._unmanaged_cache_signature()
+                unmanaged = self._read_unmanaged_cache(cache_signature)
+                if unmanaged is None:
+                    _set_status_progress("Scanning Paks and LogicMods for manually installed mods…")
+                    unmanaged = self._scan_unmanaged_mods(managed_names)
+                    self._write_unmanaged_cache(cache_signature, unmanaged)
+                else:
+                    _set_status_progress("Using the saved manual-mod scan…")
 
                 _set_status_progress("Checking UE4SS files…")
                 binaries_dir = self.game_executable.parent
-                ue4ss_installed = False
-                if game_valid:
-                    ue4ss_checks = []
-                    for relative in UE4SS_RELATIVE_FILES:
-                        valid, error = _run_check_with_timeout(
-                            lambda relative=relative: (binaries_dir / relative).is_file()
-                        )
-                        if error:
-                            game_check_error = error
-                            break
-                        ue4ss_checks.append(valid)
-                    ue4ss_installed = len(ue4ss_checks) == len(UE4SS_RELATIVE_FILES) and all(ue4ss_checks)
-
-                _set_status_progress("Checking saved mod profiles…")
+                ue4ss_installed = game_valid and all(
+                    (binaries_dir / relative).is_file() for relative in UE4SS_RELATIVE_FILES
+                )
                 profiles = self._read_profiles()
-                logic_mods_exists = False
-                if game_valid:
-                    logic_mods_exists, logic_error = _run_check_with_timeout(
-                        lambda: self.logic_mods_dir.is_dir()
-                    )
-                    if logic_error and not game_check_error:
-                        game_check_error = logic_error
 
                 result = {
                     "game_dir": str(self.game_dir),
@@ -1619,7 +1564,7 @@ class ModManager:
                     "game_executable": str(self.game_executable),
                     "paks_dir": str(self.paks_dir),
                     "logic_mods_dir": str(self.logic_mods_dir),
-                    "logic_mods_exists": logic_mods_exists,
+                    "logic_mods_exists": self.logic_mods_dir.is_dir(),
                     "game_running": game_running,
                     "game_check_error": game_check_error,
                     "mods": listed_mods,
