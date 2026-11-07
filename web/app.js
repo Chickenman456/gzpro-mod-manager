@@ -53,6 +53,55 @@ async function loadChangelog() {
   }
 }
 
+
+let latestRelease = null;
+async function checkForUpdates() {
+  const button = byId("check-updates");
+  const panel = byId("update-panel");
+  const title = byId("update-title");
+  const details = byId("update-details");
+  const install = byId("install-update");
+  button.disabled = true;
+  panel.hidden = false;
+  install.hidden = true;
+  title.textContent = "Checking GitHub for updates…";
+  details.textContent = "";
+  try {
+    latestRelease = await requestJson("/api/update/check");
+    byId("release-link").href = latestRelease.release_url;
+    if (!latestRelease.update_available) {
+      title.textContent = `You are up to date (v${latestRelease.current_version}).`;
+      details.textContent = "No update is currently available.";
+    } else {
+      title.textContent = `Version ${latestRelease.latest_version} is available.`;
+      details.textContent = `You have v${latestRelease.current_version}. The updater downloads the official GitHub release, verifies its SHA-256 digest when provided, then restarts the manager. Your mod library and settings are stored separately and will be preserved.`;
+      install.hidden = false;
+    }
+  } catch (error) {
+    title.textContent = "Could not check for updates.";
+    details.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function installUpdate() {
+  if (!latestRelease?.update_available) return;
+  if (!window.confirm(`Download and install GZPro Mod Manager v${latestRelease.latest_version}? The application will close and reopen when the update is ready.`)) return;
+  byId("install-update").disabled = true;
+  byId("update-title").textContent = "Downloading and preparing update…";
+  byId("update-details").textContent = "Keep this window open until the download has been prepared.";
+  try {
+    const result = await requestJson("/api/update/install", { method: "POST" });
+    byId("update-title").textContent = `Installing v${result.version}…`;
+    byId("update-details").textContent = "The manager will close and restart automatically.";
+  } catch (error) {
+    byId("update-title").textContent = "Update could not be installed.";
+    byId("update-details").textContent = error.message;
+    byId("install-update").disabled = false;
+  }
+}
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -292,6 +341,8 @@ async function changeModState(modId, action) {
   }
 }
 
+byId("check-updates").addEventListener("click", checkForUpdates);
+byId("install-update").addEventListener("click", installUpdate);
 byId("tab-mods").addEventListener("click", () => selectTab("mods"));
 byId("tab-changelog").addEventListener("click", () => selectTab("changelog"));
 byId("refresh-changelog").addEventListener("click", loadChangelog);
