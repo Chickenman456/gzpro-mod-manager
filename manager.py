@@ -616,7 +616,8 @@ class ModManager:
                     raise ManagerError("The package must contain the cooked mod's .utoc and .ucas files.")
                 if ".pak" not in suffixes:
                     stub_member = {
-                        "entry": None, "name": (skin_stem or "GZSkin") + ".pak",
+                        "entry": None, "suffix": ".pak",
+                        "name": (skin_stem or "GZSkin") + ".pak",
                         "sha256": hashlib.sha256(_STUB_PAK).hexdigest(),
                         "size": len(_STUB_PAK), "stub": True,
                     }
