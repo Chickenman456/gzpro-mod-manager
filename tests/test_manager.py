@@ -75,7 +75,7 @@ class ModManagerTests(unittest.TestCase):
             "HeiseiBurningSkin/HeiseiBurningSkin_P.utoc": b"toc",
             "HeiseiBurningSkin/HeiseiBurningSkin_P.ucas": b"cas",
             "GZSkinLoader/Scripts/main.lua": b"print('loader')",
-            "GZSkinLoader/enabled.txt": b"1",
+            "GZSkinLoader/enabled.txt": b"",
         })
         mod = self.install("BurningGodzilla.zip", payload, kind="override")
         paks_mods = self.paks_dir / "~mods"
@@ -84,7 +84,7 @@ class ModManagerTests(unittest.TestCase):
         self.assertEqual((paks_mods / "HeiseiBurningSkin_P.ucas").read_bytes(), b"cas")
         self.assertTrue((paks_mods / "HeiseiBurningSkin_P.pak").is_file())
         self.assertEqual((loader / "Scripts" / "main.lua").read_bytes(), b"print('loader')")
-        self.assertEqual((loader / "enabled.txt").read_bytes(), b"1")
+        self.assertEqual((loader / "enabled.txt").read_bytes(), b"")
         self.assertEqual(mod["file_count"], 5)
         disabled = self.manager.set_mod_enabled(str(mod["id"]), False)
         self.assertFalse(disabled["enabled"])
