@@ -430,11 +430,33 @@ class ModManagerTests(unittest.TestCase):
             self.install(payload=payload)
         self.assertFalse((self.paks_dir / "LogicMods").exists())
 
-    def test_rejects_packages_with_mismatched_mod_names(self) -> None:
+    def test_accepts_different_container_stems_and_normalizes_to_utoc_name(self) -> None:
         payload = make_package({"TestMod.utoc": b"toc", "OtherMod.ucas": b"cas"})
-        with self.assertRaises(ManagerError):
-            self.install(payload=payload)
-        self.assertFalse((self.paks_dir / "LogicMods").exists())
+        mod = self.install(payload=payload)
+        self.assertEqual(mod["stem"], "TestMod")
+        self.assertEqual(self.deployed()[0].read_bytes(), b"toc")
+        self.assertEqual(self.deployed()[1].read_bytes(), b"cas")
+
+    def test_skip_unsupported_package_files_when_requested(self) -> None:
+        payload = make_package({
+            **default_members("CharacterPack"),
+            "notes/custom-data.txt": b"not deployed",
+        })
+        archive = self.root / "SkipUnsupported.zip"
+        archive.write_bytes(payload)
+        stem, members, _, _ = self.manager._read_package_members(archive, skip_unsupported=True)
+        self.assertEqual(stem, "CharacterPack")
+        self.assertEqual({member["name"] for member in members}, {
+            "CharacterPack.utoc", "CharacterPack.ucas", "CharacterPack.pak"
+        })
+
+    def test_read_me_with_space_is_ignored(self) -> None:
+        payload = make_package({
+            "READ ME.txt": b"Instructions",
+            **default_members("CharacterPack"),
+        })
+        mod = self.install(payload=payload)
+        self.assertEqual(mod["stem"], "CharacterPack")
 
     def test_rejects_packages_with_folder_paths(self) -> None:
         payload = make_package({"nested/TestMod.utoc": b"toc", "TestMod.ucas": b"cas"})
