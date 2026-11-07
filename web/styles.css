@@ -223,3 +223,60 @@ h2, h3 { font-family: "Fjalla One", "Barlow Condensed", sans-serif; }
 .mod-title-button { display:inline; width:fit-content; max-width:100%; padding:0; border:0; background:transparent; color:#f2eee5; font:600 1.12rem "Barlow Condensed","Arial Narrow",sans-serif; text-align:left; cursor:pointer; overflow-wrap:anywhere; }
 .mod-title-button:hover { color:#e7a044; text-decoration:underline; text-decoration-color:#9a652b; text-underline-offset:3px; }
 .mod-title-button:focus-visible { outline:1px solid #e7a044; outline-offset:3px; }
+
+
+/* Plain-language error explanations */
+.error-help {
+  margin: 10px 0 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(226, 166, 76, .48);
+  background: rgba(226, 166, 76, .07);
+  display: grid;
+  gap: 10px;
+}
+.error-help[hidden] { display: none; }
+.error-help strong { display: block; color: var(--text, #eee8d5); font-size: .88rem; }
+.error-help p { margin: 4px 0 0; color: var(--muted, #a8a8a8); line-height: 1.45; }
+.error-help .button { justify-self: start; }
+
+.troubleshooting-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.troubleshooting-item {
+  padding: 14px;
+  border: 1px solid var(--border, #343b3e);
+  background: rgba(255,255,255,.018);
+}
+.troubleshooting-item h3 {
+  margin: 0 0 9px;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.12rem;
+  font-weight: 600;
+}
+.troubleshooting-item p {
+  margin: 6px 0 0;
+  color: var(--muted, #aaa);
+  line-height: 1.45;
+  font-size: .9rem;
+}
+.troubleshooting-item p strong { color: var(--text, #eee8d5); }
+
+.drag-overlay {
+  position: fixed;
+  inset: 12px;
+  z-index: 1000;
+  display: none;
+  place-items: center;
+  border: 2px dashed var(--accent, #e2a64c);
+  background: rgba(10, 15, 17, .94);
+  color: var(--text, #eee8d5);
+  pointer-events: none;
+  text-align: center;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+body.file-dragging .drag-overlay { display: grid; }
+body.file-dragging #drop-zone { border-color: var(--accent, #e2a64c); }
