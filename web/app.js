@@ -340,6 +340,8 @@ async function changeModState(modId, action) {
   if (!modId || !["enable", "disable"].includes(action)) return;
   const verb = action === "disable" ? "disable" : "enable";
   state.busy = true;
+  const selectedMod = state.status?.mods?.find((mod) => mod.id === modId);
+  if (selectedMod) selectedMod.enabled = action === "enable";
   setMessage(`${verb === "disable" ? "Disabling" : "Enabling"} mod…`);
   renderStatus(state.status);
   try {
