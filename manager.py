@@ -568,6 +568,7 @@ class ModManager:
                 if has_loader and not any(name.casefold() == "gzskinloader/scripts/main.lua" for _, name in loader_infos):
                     raise ManagerError("GZSkinLoader must include Scripts/main.lua.")
 
+                composite_package = has_loader or any(folder is not None for _, _, folder in skin_infos)
                 skin_stem = None
                 suffixes: set[str] = set()
                 members: list[dict[str, object]] = []
@@ -609,17 +610,19 @@ class ModManager:
                     suffixes.add(suffix)
                     add_member(
                         info, entry, skin_stem + suffix,
-                        f"GZPro/Content/Paks/~mods/{skin_stem}{suffix}",
+                        f"GZPro/Content/Paks/~mods/{skin_stem}{suffix}" if composite_package else None,
                     )
                 if not REQUIRED_MEMBER_SUFFIXES.issubset(suffixes):
                     raise ManagerError("The package must contain the cooked mod's .utoc and .ucas files.")
                 if ".pak" not in suffixes:
-                    members.append({
+                    stub_member = {
                         "entry": None, "name": (skin_stem or "GZSkin") + ".pak",
-                        "target": f"GZPro/Content/Paks/~mods/{skin_stem or 'GZSkin'}.pak",
                         "sha256": hashlib.sha256(_STUB_PAK).hexdigest(),
                         "size": len(_STUB_PAK), "stub": True,
-                    })
+                    }
+                    if composite_package:
+                        stub_member["target"] = f"GZPro/Content/Paks/~mods/{skin_stem}.pak"
+                    members.append(stub_member)
                 for info, entry in loader_infos:
                     relative = entry.split("/", 1)[1]
                     target = "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/" + relative
