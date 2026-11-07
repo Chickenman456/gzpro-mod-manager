@@ -16,7 +16,7 @@
       <img class="brand-logo" src="/gzprologo.png" alt="GZPro Mod Manager">
     </div>
     <div class="header-meta">
-      <span class="version-label">v1.3.4 · 2026-11-07</span>
+      <span class="version-label">v1.4.0 · 2026-11-07</span>
       <a class="button button-secondary report-bug" href="https://github.com/Chickenman456/gzpro-mod-manager/issues/new" target="_blank" rel="noopener noreferrer">Report a bug</a>
       <span class="local-badge">Local only</span>
     </div>
@@ -43,6 +43,12 @@
       <p id="install-status" class="muted" role="status"></p>
     </section>
 
+    <nav class="tab-bar" role="tablist" aria-label="Manager pages">
+      <button class="tab-button active" id="tab-mods" type="button" role="tab" aria-selected="true" aria-controls="page-mods">Mods</button>
+      <button class="tab-button" id="tab-changelog" type="button" role="tab" aria-selected="false" aria-controls="page-changelog">Changelog</button>
+    </nav>
+
+    <section id="page-mods" class="tab-page active" role="tabpanel" aria-labelledby="tab-mods">
     <section class="panel" aria-labelledby="mods-title">
       <div class="section-heading">
         <div>
@@ -83,6 +89,20 @@
       <p id="action-message" class="message" role="status"></p>
       <div id="mods" class="mod-list"></div>
       <div id="unmanaged" class="unmanaged-list"></div>
+    </section>
+
+    </section>
+
+    <section id="page-changelog" class="tab-page" role="tabpanel" aria-labelledby="tab-changelog" hidden>
+      <section class="panel" aria-labelledby="changelog-title">
+        <div class="section-heading">
+          <div><h2 id="changelog-title">Project changelog</h2><p class="muted">Recent changes pulled directly from the GitHub commit history.</p></div>
+          <button id="refresh-changelog" class="button button-secondary" type="button">Refresh</button>
+        </div>
+        <p id="changelog-status" class="message" role="status">Loading GitHub history…</p>
+        <div id="changelog-list" class="changelog-list"></div>
+        <p class="muted"><a href="https://github.com/Chickenman456/gzpro-mod-manager/commits/master" target="_blank" rel="noopener noreferrer">View full commit history on GitHub</a></p>
+      </section>
     </section>
 
     <footer>
