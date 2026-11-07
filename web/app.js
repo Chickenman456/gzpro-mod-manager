@@ -347,17 +347,19 @@ async function importFile(file) {
     let mod;
     try { mod = await uploadFile(file, kind); }
     catch (error) {
-      if (/^Unsupported file or folder in the package: /i.test(error.message)
-          && window.confirm(
-            error.message + "\n\nSkip unsupported files and folders and try importing the supported mod files? Unknown files will NOT be installed. Only continue if you trust this ZIP."
-          )) {
+      if (/^Unsupported file or folder in the package: /i.test(error.message)) {
+        const skip = window.confirm(
+          error.message + "\n\nSkip unsupported files and folders and try importing the supported mod files? Unknown files will NOT be installed. Only continue if you trust this ZIP."
+        );
+        if (!skip) throw error;
         mod = await uploadFile(file, kind, null, true);
-      } else if (!error.replaceModId) {
+      } else if (error.replaceModId) {
+        const replace = window.confirm("A mod named \"" + error.replaceStem + "\" is already in your library. Replace its installed version with this ZIP? The existing mod and profile references will be kept. If replacement fails, the previous version will be restored.");
+        if (!replace) { setMessage("Existing mod was left unchanged."); return; }
+        mod = await uploadFile(file, kind, error.replaceModId);
+      } else {
         throw error;
       }
-      const replace = window.confirm("A mod named \"" + error.replaceStem + "\" is already in your library. Replace its installed version with this ZIP? The existing mod and profile references will be kept. If replacement fails, the previous version will be restored.");
-      if (!replace) { setMessage("Existing mod was left unchanged."); return; }
-      mod = await uploadFile(file, kind, error.replaceModId);
     }
     const note = mod.requires_ue4ss
       ? "UE4SS files were included or detected. The mod will load the next time the game starts."
