@@ -186,7 +186,7 @@ function renderStatus(status) {
         <label class="mod-toggle" title="${mod.enabled ? "Disable" : "Enable"} ${escapeHtml(mod.stem || mod.filename)}"><input type="checkbox" data-mod-toggle="${escapeHtml(mod.id)}" ${mod.enabled ? "checked" : ""} ${disabled ? "disabled" : ""} aria-label="${mod.enabled ? "Disable" : "Enable"} ${escapeHtml(mod.stem || mod.filename)}"><span class="mod-toggle-mark" aria-hidden="true"></span></label>
         ${thumbnail}
         <div class="mod-info">
-          <strong>${escapeHtml(mod.stem || mod.filename)}</strong>
+          <button class="mod-title-button" type="button" data-rename-mod="${escapeHtml(mod.id)}" title="Click to rename this mod">${escapeHtml(mod.display_name || mod.stem || mod.filename)}</button>
           <span>${formatSize(mod.size)} · ${mod.file_count || 1} files · ${kindLabel} · ${escapeHtml(stateLabel)}</span>
           ${description}
           <small>SHA-256 ${escapeHtml(mod.sha256.slice(0, 16))}… · backup ${mod.backup_available ? "available" : "missing"}</small>
@@ -198,6 +198,21 @@ function renderStatus(status) {
     }).join("");
     modsElement.querySelectorAll("input[data-mod-toggle]").forEach((checkbox) => {
       checkbox.addEventListener("change", () => changeModState(checkbox.dataset.modToggle, checkbox.checked ? "enable" : "disable"));
+    });
+    modsElement.querySelectorAll("button[data-rename-mod]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const mod = state.status.mods.find((item) => item.id === button.dataset.renameMod);
+        if (!mod) return;
+        const currentName = mod.display_name || mod.stem || mod.filename;
+        const nextName = window.prompt("Rename this mod:", currentName);
+        if (nextName === null || nextName.trim() === "" || nextName.trim() === currentName) return;
+        try {
+          await requestJson("/api/mods/" + button.dataset.renameMod + "/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ display_name: nextName.trim() }) });
+          mod.display_name = nextName.trim();
+          renderStatus(state.status);
+          setMessage("Mod renamed to \"" + nextName.trim() + "\".");
+        } catch (error) { setMessage("Could not rename mod: " + error.message, true); }
+      });
     });
     modsElement.querySelectorAll("button[data-delete-mod]").forEach((button) => {
       button.addEventListener("click", () => deleteManagedMod(button.dataset.deleteMod));
@@ -235,13 +250,14 @@ async function refreshStatus() {
   }
 }
 
-function uploadFile(file, kind) {
+function uploadFile(file, kind, replaceModId = null) {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", "/api/mods");
     request.setRequestHeader("Content-Type", "application/octet-stream");
     request.setRequestHeader("X-Mod-Name", encodeURIComponent(file.name));
     request.setRequestHeader("X-Mod-Kind", kind);
+    if (replaceModId) request.setRequestHeader("X-Replace-Mod-Id", replaceModId);
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         byId("upload-progress").value = Math.round((event.loaded / event.total) * 100);
@@ -256,7 +272,10 @@ function uploadFile(file, kind) {
         return;
       }
       if (request.status < 200 || request.status >= 300) {
-        reject(new Error(result.error || `Upload failed (${request.status}).`));
+        const error = new Error(result.error || `Upload failed (${request.status}).`);
+        const match = /^MOD_REPLACE_REQUIRED:([0-9a-f]{32}):(.+)$/i.exec(error.message);
+        if (match) { error.replaceModId = match[1]; error.replaceStem = match[2]; error.message = match[2] + " is already installed."; }
+        reject(error);
         return;
       }
       resolve(result);
@@ -287,7 +306,14 @@ async function importFile(file) {
   setMessage(`Importing ${file.name}…`);
   renderStatus(state.status);
   try {
-    const mod = await uploadFile(file, kind);
+    let mod;
+    try { mod = await uploadFile(file, kind); }
+    catch (error) {
+      if (!error.replaceModId) throw error;
+      const replace = window.confirm("A mod named \"" + error.replaceStem + "\" is already in your library. Replace its installed version with this ZIP? The existing mod and profile references will be kept. If replacement fails, the previous version will be restored.");
+      if (!replace) { setMessage("Existing mod was left unchanged."); return; }
+      mod = await uploadFile(file, kind, error.replaceModId);
+    }
     const note = mod.kind === "blueprint"
       ? "UE4SS loads it the next time the game starts."
       : "It overrides the game's original assets the next time the game starts.";
