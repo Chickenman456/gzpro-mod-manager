@@ -431,7 +431,7 @@ class ModManagerTests(unittest.TestCase):
         self.assertFalse((self.paks_dir / "LogicMods").exists())
 
     def test_accepts_different_container_stems_and_normalizes_to_utoc_name(self) -> None:
-        payload = make_package({"TestMod.utoc": b"toc", "OtherMod.ucas": b"cas"})
+        payload = make_package({"OtherMod.ucas": b"cas", "TestMod.utoc": b"toc"})
         mod = self.install(payload=payload)
         self.assertEqual(mod["stem"], "TestMod")
         self.assertEqual(self.deployed()[0].read_bytes(), b"toc")
