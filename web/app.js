@@ -326,7 +326,7 @@ function uploadFile(file, kind, replaceModId = null) {
 async function importFile(file) {
   if (!file) return;
   if (!file.name.toLocaleLowerCase().endsWith(".zip")) {
-    setMessage("Mods install from a .zip package holding the cooked .utoc and .ucas files. A raw WAV or loose Unreal asset cannot be dropped in directly.", true);
+    setMessage("Choose a .zip package containing cooked .utoc/.ucas files or a supported UE4SS folder layout. Raw WAV files and loose Unreal assets cannot be installed directly.", true);
     return;
   }
   if (!state.status?.game_valid || state.status.game_running || state.status.game_check_error) {
