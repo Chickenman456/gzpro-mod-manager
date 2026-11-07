@@ -462,6 +462,7 @@ class ModManagerTests(unittest.TestCase):
         payload = make_package({
             "dwmapi.dll": b"proxy loader",
             "Win64/ExtraLoader.dll": b"additional loader",
+            "GZPro/Binaries/Win64/DirectPath.dll": b"direct path loader",
         })
         archive = self.root / "DllPackage.zip"
         archive.write_bytes(payload)
@@ -476,14 +477,17 @@ class ModManagerTests(unittest.TestCase):
         binaries = self.game_dir / "GZPro" / "Binaries" / "Win64"
         self.assertEqual((binaries / "dwmapi.dll").read_bytes(), b"proxy loader")
         self.assertEqual((binaries / "ExtraLoader.dll").read_bytes(), b"additional loader")
+        self.assertEqual((binaries / "DirectPath.dll").read_bytes(), b"direct path loader")
         self.assertTrue(mod["requires_ue4ss"])
-        self.assertEqual(mod["file_count"], 2)
+        self.assertEqual(mod["file_count"], 3)
 
         self.manager.set_mod_enabled(str(mod["id"]), False)
         self.assertFalse((binaries / "dwmapi.dll").exists())
         self.assertFalse((binaries / "ExtraLoader.dll").exists())
+        self.assertFalse((binaries / "DirectPath.dll").exists())
         self.manager.set_mod_enabled(str(mod["id"]), True)
         self.assertEqual((binaries / "ExtraLoader.dll").read_bytes(), b"additional loader")
+        self.assertEqual((binaries / "DirectPath.dll").read_bytes(), b"direct path loader")
 
     def test_run_anyway_does_not_allow_arbitrary_non_dll_files(self) -> None:
         payload = make_package({"scripts/anything.exe": b"not a DLL"})
