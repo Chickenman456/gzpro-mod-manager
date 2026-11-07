@@ -5,6 +5,7 @@ import ctypes
 import base64
 import csv
 import hashlib
+from html.parser import HTMLParser
 import io
 import json
 import os
@@ -21,7 +22,7 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import BinaryIO
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlsplit
 
 
 DEFAULT_GAME_DIR = Path(
@@ -33,7 +34,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.9.1"
+APP_VERSION = "1.9.2"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -1363,6 +1364,95 @@ def schedule_self_update(release: dict[str, object]) -> None:
         raise ManagerError(f"Could not prepare the update: {error}") from error
 
 
+
+NEXUS_GAME_DOMAIN = "godzilladestroyallmonstersmeleeremastered"
+NEXUS_GAME_URL = "https://www.nexusmods.com/" + NEXUS_GAME_DOMAIN
+
+
+class NexusModListParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.mods = {}
+        self.current = None
+        self.anchor_depth = 0
+
+    def handle_starttag(self, tag, attrs) -> None:
+        values = dict(attrs)
+        if tag == "a":
+            href = values.get("href") or ""
+            match = re.search(r"/" + re.escape(NEXUS_GAME_DOMAIN) + r"/mods/(\d+)(?:[/?#]|$)", href, re.IGNORECASE)
+            if match:
+                mod_id = match.group(1)
+                self.current = {
+                    "id": mod_id,
+                    "title": (values.get("title") or values.get("aria-label") or "").strip(),
+                    "url": NEXUS_GAME_URL + "/mods/" + mod_id,
+                    "thumbnail": "",
+                    "text": "",
+                }
+                self.anchor_depth = 1
+            elif self.current is not None:
+                self.anchor_depth += 1
+        elif tag == "img" and self.current is not None:
+            src = values.get("src") or values.get("data-src") or values.get("data-original") or ""
+            alt = (values.get("alt") or "").strip()
+            if src and not self.current["thumbnail"]:
+                absolute = urljoin(NEXUS_GAME_URL + "/", src)
+                if urlsplit(absolute).scheme == "https":
+                    self.current["thumbnail"] = absolute
+            if alt and not self.current["title"]:
+                self.current["title"] = alt
+
+    def handle_data(self, data) -> None:
+        if self.current is not None:
+            clean = " ".join(data.split())
+            if clean:
+                self.current["text"] += (" " if self.current["text"] else "") + clean
+
+    def handle_endtag(self, tag) -> None:
+        if tag == "a" and self.current is not None:
+            self.anchor_depth -= 1
+            if self.anchor_depth <= 0:
+                item = self.current
+                title = re.sub(r"\s+", " ", item["title"] or item["text"]).strip()
+                if title and item["id"] not in self.mods:
+                    self.mods[item["id"]] = {
+                        "id": item["id"], "title": title[:180],
+                        "url": item["url"], "thumbnail": item["thumbnail"],
+                    }
+                self.current = None
+                self.anchor_depth = 0
+
+
+def fetch_nexus_mods(sort="popular", query=""):
+    paths = {"popular": "/mods/top", "recent": "/mods/newrecently", "updated": "/mods/updated"}
+    if sort not in paths:
+        raise ManagerError("Choose a valid Nexus Mods list.")
+    if not isinstance(query, str) or len(query) > 100:
+        raise ManagerError("Nexus search text must be 100 characters or fewer.")
+    url = NEXUS_GAME_URL + paths[sort]
+    if query.strip():
+        url += "?" + urlencode({"gsearch": query.strip()})
+    request = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+    })
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            html = response.read(5 * 1024 * 1024 + 1)
+        if len(html) > 5 * 1024 * 1024:
+            raise ManagerError("Nexus Mods returned a page larger than the 5 MB limit.")
+        parser = NexusModListParser()
+        parser.feed(html.decode("utf-8", errors="replace"))
+        return list(parser.mods.values())[:60]
+    except urllib.error.HTTPError as error:
+        if error.code in {403, 429}:
+            raise ManagerError("Nexus Mods is temporarily blocking the listing request (HTTP " + str(error.code) + "). Try again later.") from error
+        raise ManagerError("Nexus Mods returned HTTP " + str(error.code) + ".") from error
+    except (OSError, urllib.error.URLError, TimeoutError) as error:
+        raise ManagerError("Could not connect to Nexus Mods: " + str(error)) from error
+
+
 class ManagerRequestHandler(SimpleHTTPRequestHandler):
     server_version = "GZProModManager/0.1"
     manager: ModManager
@@ -1419,6 +1509,15 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
         self._send_json({"error": "The request failed. Restart the manager and try again."}, 500)
 
     def do_GET(self) -> None:
+        if self.path.startswith("/api/nexus/mods"):
+            try:
+                params = parse_qs(urlsplit(self.path).query)
+                sort = params.get("sort", ["popular"])[0]
+                query = params.get("q", [""])[0]
+                self._send_json({"mods": fetch_nexus_mods(sort, query)})
+            except ManagerError as error:
+                self._send_manager_error(error)
+            return
         if self.path == "/api/update/check":
             try:
                 self._send_json(get_latest_release())
