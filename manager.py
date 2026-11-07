@@ -740,7 +740,10 @@ class ModManager:
                 if has_skin_loader and not any(name.casefold() == "gzskinloader/scripts/main.lua" for _, name in loader_infos):
                     raise ManagerError("GZSkinLoader must include Scripts/main.lua.")
 
-                composite_package = has_skin_loader or bool(runtime_infos) or any(folder is not None for _, _, folder in skin_infos)
+                composite_package = has_skin_loader or bool(runtime_infos) or any(
+                    folder is not None or entry.casefold().startswith("gzpro/content/paks/~mods/")
+                    for _, entry, folder in skin_infos
+                )
                 skin_stem = None
                 suffixes: set[str] = set()
                 members: list[dict[str, object]] = []
