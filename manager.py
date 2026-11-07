@@ -1049,6 +1049,7 @@ def get_latest_release() -> dict[str, object]:
         raise ManagerError("The latest release does not include GZProModManager.exe.")
     return {
         "current_version": APP_VERSION,
+        "can_install": sys.platform == "win32" and getattr(sys, "frozen", False),
         "latest_version": tag.lstrip("v"),
         "tag": tag,
         "update_available": tag.lstrip("v") != APP_VERSION,
@@ -1098,7 +1099,8 @@ def schedule_self_update(release: dict[str, object]) -> None:
             f"$managerProcessId = {os.getpid()}\n"
             "while (Get-Process -Id $managerProcessId -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }\n"
             "Copy-Item -LiteralPath $source -Destination $target -Force\n"
-            "Start-Process -FilePath $target\n"
+            "$staged = $target + '.update'\n"
+            "try { Copy-Item -LiteralPath $source -Destination $staged -Force; Move-Item -LiteralPath $staged -Destination $target -Force; Start-Process -FilePath $target } catch { Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue; Start-Process -FilePath $target }\n"
             "Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue\n"
             "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\n",
             encoding="utf-8",
