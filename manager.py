@@ -318,22 +318,29 @@ class ModManager:
                     raise StateError(
                         "The mod recovery manifest contains an invalid entry. No files were changed."
                     )
-                _safe_member_name(member["name"])
                 if "target" not in member:
+                    _safe_member_name(member["name"])
                     continue
                 target = member["target"]
-                allowed_prefixes = (
-                    "GZPro/Content/Paks/~mods/",
-                    "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/",
-                )
+                skin_target = target.startswith("GZPro/Content/Paks/~mods/") if isinstance(target, str) else False
+                loader_target = target in {
+                    "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/Scripts/main.lua",
+                    "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/enabled.txt",
+                } if isinstance(target, str) else False
                 if (
                     not isinstance(target, str)
-                    or not target.startswith(allowed_prefixes)
+                    or not (skin_target or loader_target)
                     or "\\" in target
                     or any(part in {"", ".", ".."} for part in target.split("/"))
                     or Path(target).name != member["name"]
                 ):
                     raise StateError("The mod recovery manifest contains an invalid target path.")
+                if skin_target:
+                    if Path(member["name"]).suffix.casefold() not in MOD_MEMBER_SUFFIXES:
+                        raise StateError("The mod recovery manifest contains an invalid skin file.")
+                    _safe_mod_stem(Path(member["name"]).stem)
+                elif Path(member["name"]).suffix.casefold() not in {".lua", ".txt"}:
+                    raise StateError("The mod recovery manifest contains an invalid loader file.")
         return mods
 
     def _write_manifest(self, mods: list[dict[str, object]]) -> None:
