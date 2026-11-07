@@ -167,6 +167,7 @@ function renderStatus(status) {
   else if (status.active_profile_id) profileSelect.value = status.active_profile_id;
   byId("apply-profile").disabled = state.busy || !profileSelect.value || !status.game_valid || status.game_running || Boolean(status.game_check_error);
   byId("delete-profile").disabled = state.busy || !profileSelect.value;
+  byId("open-mod-location").disabled = !status.game_valid;
   byId("launch-game").disabled = !status.game_valid || status.game_running || Boolean(status.game_check_error);
   byId("profile-status").textContent = status.active_profile_id
     ? `Active profile: ${profiles.find((profile) => profile.id === status.active_profile_id)?.name || "Saved profile"}`
@@ -425,6 +426,21 @@ byId("delete-profile").addEventListener("click", async () => {
 byId("profile-select").addEventListener("change", () => {
   byId("apply-profile").disabled = !byId("profile-select").value || state.busy || !state.status?.game_valid || state.status?.game_running || Boolean(state.status?.game_check_error);
   byId("delete-profile").disabled = !byId("profile-select").value || state.busy;
+});
+byId("open-mod-location").addEventListener("click", async () => {
+  const button = byId("open-mod-location");
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = "Opening…";
+  try {
+    const result = await requestJson("/api/game/open-mod-location", { method: "POST" });
+    setMessage("Opened mod install location: " + result.path);
+  } catch (error) {
+    setMessage("Could not open mod install location: " + error.message, true);
+  } finally {
+    button.textContent = originalText;
+    button.disabled = !state.status?.game_valid;
+  }
 });
 byId("launch-game").addEventListener("click", async () => {
   const button = byId("launch-game");
