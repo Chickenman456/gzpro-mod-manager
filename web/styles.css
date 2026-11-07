@@ -12,7 +12,7 @@
 body {
   margin: 0;
   min-width: 320px;
-  background: linear-gradient(135deg, #13191b 0%, #18344a 100%);
+  background: radial-gradient(ellipse at 78% 72%, rgba(29, 83, 119, .38), transparent 48%), radial-gradient(ellipse at 15% 8%, rgba(119, 91, 49, .12), transparent 35%), linear-gradient(135deg, #090e15 0%, #111b28 54%, #102c42 100%);
   background-attachment: fixed;
 }
 
@@ -47,9 +47,9 @@ h3 { margin-bottom: .35rem; font-size: 1.1rem; }
 .local-badge { border: 1px solid #507361; border-radius: 999px; padding: .35rem .7rem; color: #b7e5c4; font-size: .8rem; }
 
 main { width: min(100% - 2rem, 960px); margin: 2rem auto 3rem; }
-.notice, .panel { border: 1px solid #303644; border-radius: 14px; padding: 1.2rem; background: #1b1f28; }
+.notice, .panel { border: 1px solid #343b45; border-radius: 3px; padding: 1.2rem; background: rgba(13, 17, 23, .91); }
 .notice { margin-bottom: 1rem; }
-.notice-caution { border-color: #775c2b; background: #282319; }
+.notice-caution { border-color: #6e5737; background: rgba(22, 23, 25, .94); }
 .notice p, .panel p:last-child { margin-bottom: 0; }
 .notice h2 { color: #f0c66f; }
 .panel { margin-bottom: 1rem; }
@@ -61,9 +61,9 @@ code { border-radius: 4px; padding: .12rem .32rem; background: #10131a; color: #
 .path-form label { color: #c9ced9; font-size: .9rem; }
 input[type="text"] { min-width: 0; border: 1px solid #454c5a; border-radius: 7px; padding: .7rem .8rem; background: #11141b; color: #eef0f6; }
 
-.button { border: 1px solid transparent; border-radius: 7px; padding: .65rem .9rem; color: #f7f8fb; font-weight: 650; cursor: pointer; }
-.button-primary { background: #256d9e; }
-.button-secondary { border-color: #485161; background: #303745; }
+.button { border: 1px solid transparent; border-radius: 2px; padding: .65rem .9rem; color: #f7f1e7; font-weight: 600; letter-spacing: .025em; text-transform: uppercase; cursor: pointer; }
+.button-primary { background: #a95e16; border-color: #d18427; }
+.button-secondary { border-color: #424b56; background: #171d26; }
 .button:hover:not(:disabled) { filter: brightness(1.15); }
 .button:disabled { cursor: not-allowed; opacity: .48; }
 
@@ -136,10 +136,10 @@ footer strong { color: #cbd2df; }
 }
 
 
-.tab-bar { display: flex; gap: .45rem; margin: 0 0 1rem; border-bottom: 1px solid #303644; }
-.tab-button { border: 0; border-bottom: 3px solid transparent; padding: .75rem 1.1rem; background: transparent; color: #aeb8c9; font: inherit; font-size: 1rem; font-weight: 700; cursor: pointer; }
+.tab-bar { display: flex; gap: .35rem; margin: 0 0 1rem; border-bottom: 1px solid #42434a; }
+.tab-button { border: 1px solid transparent; border-bottom: 2px solid transparent; padding: .7rem 1.1rem; background: rgba(8, 12, 18, .55); color: #c1c6ce; font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-size: 1.05rem; font-weight: 600; letter-spacing: .025em; text-transform: uppercase; cursor: pointer; }
 .tab-button:hover { color: #faedd5; }
-.tab-button.active { border-bottom-color: #59b5e8; color: #faedd5; }
+.tab-button.active { border-color: #8b5722; border-bottom-color: #e58b24; color: #fff0d8; background: #17191d; }
 .tab-page[hidden] { display: none; }
 .changelog-list { display: grid; gap: .55rem; margin: 1rem 0; }
 .changelog-entry { border: 1px solid #343b49; border-radius: 8px; padding: .8rem .9rem; background: #151922; }
@@ -176,12 +176,12 @@ footer strong { color: #cbd2df; }
 @media (max-width: 650px) { .mod-toggle { align-self: flex-start; } }
 
 /* Godzilla Remastered font lineup */
-.product-subtitle { margin: .35rem 0 0; color: #b7c1d2; font: 600 .78rem "Saira Extra Condensed", sans-serif; letter-spacing: .07em; text-transform: uppercase; }
+.product-subtitle { margin: .35rem 0 0; color: #b7c1d2; font: 500 .78rem "Barlow Condensed", sans-serif; letter-spacing: .04em; text-transform: uppercase; }
 #install-title, #profiles-title, #mods-title { font-family: "Anton", Impact, sans-serif; }
 h2, h3 { font-family: "Fjalla One", "Barlow Condensed", sans-serif; }
 .version-label { font-family: "Fugaz One", Impact, sans-serif; }
 .mod-info, .mod-description, .notice p, .package-guide, .path-form, .empty-state { font-family: "Noto Sans", Arial, sans-serif; }
-.button, .tab-button, .local-badge, .eyebrow, .product-subtitle { font-family: "Saira Extra Condensed", "Barlow Condensed", Impact, sans-serif; }
+.button, .tab-button, .local-badge, .eyebrow, .product-subtitle { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 600; }
 :lang(ja), [lang="ja"] { font-family: "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif; }
 
 .profile-panel { margin-top: 1rem; }
@@ -207,3 +207,15 @@ h2, h3 { font-family: "Fjalla One", "Barlow Condensed", sans-serif; }
 .nexus-mod-card strong { display:block; overflow-wrap:anywhere; color:#eef0f6; }
 .nexus-mod-card small { display:block; margin-top:.25rem; }
 .nexus-status { min-height:1.5rem; margin-top:.75rem; }
+
+/* Status notes sit clearly below their controls, like the game settings UI. */
+.install-status-line, .profile-status-line { margin: .9rem 0 0; padding: .65rem .8rem; border-left: 2px solid #b87527; background: rgba(4, 8, 13, .48); color: #b9c2cd; font: italic 500 .88rem "Barlow Condensed", sans-serif; letter-spacing: .015em; }
+.install-status-line:empty, .profile-status-line:empty { display:none; }
+.install-status-line.error { border-left-color:#c45a4f; }
+.profile-status-line { margin-top: .85rem; }
+.button-launch { flex: 0 0 auto; min-width: 132px; border: 1px solid #d88a28; background: linear-gradient(#a96118,#78400f); color:#fff1dc; }
+.button-launch:hover:not(:disabled) { background: linear-gradient(#c97920,#914e12); }
+.button-launch:disabled { opacity:.45; }
+.topbar { background: rgba(8, 13, 20, .94); border-bottom-color:#3b4149; }
+.notice h2 { color:#e8a044; }
+@media (max-width:650px) { .button-launch { width:100%; } }
