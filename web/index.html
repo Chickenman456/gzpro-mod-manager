@@ -11,12 +11,23 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
+  <div id="desktop-titlebar" class="desktop-titlebar" hidden>
+    <div class="desktop-drag-region" data-pywebview-drag-region>
+      <img src="/gzprologo.png" alt="" class="titlebar-logo" data-pywebview-drag-region>
+      <span data-pywebview-drag-region>GZPro Mod Manager</span>
+    </div>
+    <div class="window-controls">
+      <button type="button" id="window-minimize" aria-label="Minimize" title="Minimize">─</button>
+      <button type="button" id="window-maximize" aria-label="Maximize" title="Maximize">□</button>
+      <button type="button" id="window-close" aria-label="Close" title="Close">×</button>
+    </div>
+  </div>
   <header class="topbar">
     <div>
       <img class="brand-logo" src="/gzprologo.png" alt="GZPro Mod Manager">
     </div>
     <div class="header-meta">
-      <span class="version-label">v1.5.0 · 2026-11-07</span>
+      <span class="version-label">v1.6.0 · 2026-11-07</span>
       <button id="check-updates" class="button button-secondary" type="button">Check for updates</button>
       <a class="button button-secondary report-bug" href="https://github.com/Chickenman456/gzpro-mod-manager/issues/new" target="_blank" rel="noopener noreferrer">Report a bug</a>
       <span class="local-badge">Local only</span>
