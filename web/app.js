@@ -403,17 +403,49 @@ byId("check-updates").addEventListener("click", checkForUpdates);
 byId("install-update").addEventListener("click", installUpdate);
 byId("tab-mods").addEventListener("click", () => selectTab("mods"));
 byId("tab-changelog").addEventListener("click", () => selectTab("changelog"));
-byId("tab-nexus").addEventListener("click", () => selectTab("nexus"));
+let nexusSort = "popular";
+async function loadNexusMods(query = "") {
+  const status = byId("nexus-status");
+  const results = byId("nexus-results");
+  status.textContent = "Loading mods from Nexus Mods…";
+  status.classList.remove("error");
+  results.innerHTML = "";
+  document.querySelectorAll("[data-nexus-sort]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.nexusSort === nexusSort);
+    button.disabled = true;
+  });
+  try {
+    const params = new URLSearchParams({ sort: nexusSort });
+    if (query) params.set("q", query);
+    const data = await requestJson("/api/nexus/mods?" + params.toString());
+    if (!Array.isArray(data.mods) || !data.mods.length) {
+      status.textContent = query ? "No matching mods were found." : "Nexus did not return any mods for this list.";
+      return;
+    }
+    results.innerHTML = data.mods.map((mod) => {
+      const image = mod.thumbnail ? `<img src="${escapeHtml(mod.thumbnail)}" alt="" loading="lazy">` : "";
+      return `<a class="nexus-mod-card" href="${escapeHtml(mod.url)}" target="_blank" rel="noopener noreferrer">${image}<span><strong>${escapeHtml(mod.title)}</strong><small>Mod #${escapeHtml(mod.id)} · View on Nexus Mods</small></span></a>`;
+    }).join("");
+    status.textContent = `Showing ${data.mods.length} mods from Nexus Mods.`;
+  } catch (error) {
+    status.textContent = `Could not load Nexus mods: ${error.message}. Nexus may be temporarily blocking automated requests; try again later.`;
+    status.classList.add("error");
+  } finally {
+    document.querySelectorAll("[data-nexus-sort]").forEach((button) => { button.disabled = false; });
+  }
+}
+byId("tab-nexus").addEventListener("click", () => {
+  selectTab("nexus");
+  if (!state.nexusLoaded) { state.nexusLoaded = true; loadNexusMods(); }
+});
+document.querySelectorAll("[data-nexus-sort]").forEach((button) => button.addEventListener("click", () => {
+  nexusSort = button.dataset.nexusSort;
+  loadNexusMods(byId("nexus-search").value.trim());
+}));
 byId("nexus-search-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  const query = byId("nexus-search").value.trim();
-  if (!query) return;
-  const url = "https://www.nexusmods.com/godzilladestroyallmonstersmeleeremastered/mods/search/?gsearch=" + encodeURIComponent(query);
-  window.pywebview?.api?.open_nexus(url);
+  loadNexusMods(byId("nexus-search").value.trim());
 });
-document.querySelectorAll("[data-nexus-path]").forEach((button) => button.addEventListener("click", () => {
-  window.pywebview?.api?.open_nexus("https://www.nexusmods.com" + button.dataset.nexusPath);
-}));
 byId("refresh-changelog").addEventListener("click", loadChangelog);
 
 byId("mod-file").addEventListener("change", (event) => importFile(event.target.files[0]));
