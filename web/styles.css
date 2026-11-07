@@ -175,3 +175,17 @@ body:has(.desktop-titlebar:not([hidden])) .topbar { padding-top: 1rem; }
 
 body:has(.desktop-titlebar:not([hidden])) { min-height: 100vh; border: 1px solid #303744; }
 .desktop-titlebar { box-shadow: 0 1px 0 #0d1015; }
+
+/* Consistent Lucide-style outline controls, rendered as SVG. */
+.window-controls button { display: grid; place-items: center; }
+.window-controls button svg, .icon-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.icon-button { display: inline-grid; place-items: center; width: 36px; height: 36px; border: 1px solid #485161; border-radius: 7px; background: #303745; color: #dce2ed; text-decoration: none; cursor: pointer; }
+.icon-button:hover { border-color: #76c9f4; background: #394555; color: #fff; }
+.icon-button svg { width: 18px; height: 18px; }
+.mod-toggle { display: grid; place-items: center; flex: 0 0 28px; width: 28px; min-height: 36px; cursor: pointer; }
+.mod-toggle input { width: 17px; height: 17px; margin: 0; accent-color: #65b9e8; cursor: pointer; }
+.mod-toggle input:disabled { cursor: not-allowed; }
+.mod-card-disabled { opacity: .48; }
+.mod-card-disabled .mod-info { filter: grayscale(.35); }
+.mod-card-disabled .mod-toggle { opacity: 1; }
+@media (max-width: 650px) { .mod-toggle { align-self: flex-start; } }
