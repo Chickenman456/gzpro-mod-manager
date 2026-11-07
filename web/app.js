@@ -74,8 +74,10 @@ async function checkForUpdates() {
       details.textContent = "No update is currently available.";
     } else {
       title.textContent = `Version ${latestRelease.latest_version} is available.`;
-      details.textContent = `You have v${latestRelease.current_version}. The updater downloads the official GitHub release, verifies its SHA-256 digest when provided, then restarts the manager. Your mod library and settings are stored separately and will be preserved.`;
-      install.hidden = false;
+      details.textContent = latestRelease.can_install
+        ? `You have v${latestRelease.current_version}. The updater downloads the official GitHub release, verifies its SHA-256 digest when provided, then restarts the manager. Your mod library and settings are stored separately and will be preserved.`
+        : `You have v${latestRelease.current_version}. Download the latest Windows executable from the release page; in-app installation is available in the packaged Windows app.`;
+      install.hidden = !latestRelease.can_install;
     }
   } catch (error) {
     title.textContent = "Could not check for updates.";
