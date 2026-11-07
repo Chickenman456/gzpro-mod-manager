@@ -736,6 +736,12 @@ class ModManagerHttpTests(unittest.TestCase):
         self.assertEqual(self.manager.get_status()["mods"], [])
         self.assertFalse((self.manager.archive_dir / f"{installed['id']}.zip").exists())
 
+    def test_status_progress_endpoint_reports_current_stage(self) -> None:
+        with urlopen(f"{self.base_url}/api/status/progress", timeout=5) as response:
+            progress = json.load(response)
+        self.assertIsInstance(progress.get("active"), bool)
+        self.assertIsInstance(progress.get("stage"), str)
+
     def test_upload_rejects_non_local_origin_before_writing_files(self) -> None:
         request = Request(
             f"{self.base_url}/api/mods",
