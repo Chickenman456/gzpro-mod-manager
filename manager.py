@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.8.0"
+APP_VERSION = "1.9.0"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -219,6 +219,10 @@ class ModManager:
         return self.state_base / "games" / key
 
     @property
+    def profiles_path(self) -> Path:
+        return self._game_state_dir() / "profiles.json"
+
+    @property
     def archive_dir(self) -> Path:
         return self._game_state_dir() / "mods"
 
@@ -366,6 +370,109 @@ class ModManager:
             os.replace(temporary, self.manifest_path)
         finally:
             temporary.unlink(missing_ok=True)
+
+    def _read_profiles(self) -> dict[str, object]:
+        if not self.profiles_path.exists():
+            return {"version": 1, "active_profile_id": None, "profiles": []}
+        try:
+            data = json.loads(self.profiles_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise StateError(f"Could not read saved mod profiles: {error}") from error
+        if not isinstance(data, dict) or data.get("version") != 1 or not isinstance(data.get("profiles"), list):
+            raise StateError("The saved mod profiles are invalid. No game files were changed.")
+        seen = set()
+        for profile in data["profiles"]:
+            if (not isinstance(profile, dict) or not isinstance(profile.get("id"), str)
+                    or not MOD_ID_PATTERN.fullmatch(profile["id"])
+                    or not isinstance(profile.get("name"), str)
+                    or not profile["name"].strip() or len(profile["name"]) > 48
+                    or not isinstance(profile.get("mod_ids"), list)
+                    or any(not isinstance(item, str) or not MOD_ID_PATTERN.fullmatch(item) for item in profile["mod_ids"])
+                    or profile["id"] in seen):
+                raise StateError("The saved mod profiles contain an invalid entry.")
+            seen.add(profile["id"])
+        active = data.get("active_profile_id")
+        if active is not None and (not isinstance(active, str) or active not in seen):
+            data["active_profile_id"] = None
+        return data
+
+    def _write_profiles(self, data: dict[str, object]) -> None:
+        self._game_state_dir().mkdir(parents=True, exist_ok=True)
+        temporary = self.profiles_path.with_name(f".{self.profiles_path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with temporary.open("x", encoding="utf-8") as stream:
+                json.dump(data, stream, indent=2, ensure_ascii=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.profiles_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def save_profile(self, name: str) -> dict[str, object]:
+        if not isinstance(name, str):
+            raise ManagerError("Enter a name for this profile.")
+        name = name.strip()
+        if not name or len(name) > 48 or any(ord(ch) < 32 for ch in name):
+            raise ManagerError("Profile names must be 1–48 characters.")
+        with self._lock:
+            mods = self._read_manifest()
+            data = self._read_profiles()
+            if any(item["name"].casefold() == name.casefold() for item in data["profiles"]):
+                raise ConflictError("A profile with that name already exists.")
+            profile = {"id": uuid.uuid4().hex, "name": name,
+                       "mod_ids": [str(mod["id"]) for mod in mods if mod["enabled"]]}
+            data["profiles"].append(profile)
+            data["active_profile_id"] = profile["id"]
+            self._write_profiles(data)
+            return {"profiles": data["profiles"], "active_profile_id": data["active_profile_id"]}
+
+    def apply_profile(self, profile_id: str) -> dict[str, object]:
+        if not isinstance(profile_id, str) or not MOD_ID_PATTERN.fullmatch(profile_id):
+            raise ManagerError("Choose a valid profile.")
+        with self._lock:
+            self._validate_game_dir(self.game_dir)
+            self._require_game_closed()
+            data = self._read_profiles()
+            profile = next((item for item in data["profiles"] if item["id"] == profile_id), None)
+            if profile is None:
+                raise ManagerError("That profile no longer exists.")
+            mods = self._read_manifest()
+            wanted = set(profile["mod_ids"])
+            # Verify every backup and existing target before changing any mod.
+            for record in mods:
+                archive = self._archive_path(record)
+                if not archive.is_file():
+                    raise StateError(f"The backup for {record['filename']} is missing. The profile was not applied.")
+                digest, size = _hash_file(archive)
+                if digest != record["sha256"] or size != record["size"]:
+                    raise StateError(f"The backup for {record['filename']} failed its integrity check.")
+                target_dir = self._mod_target_dir(record)
+                for member in record["members"]:
+                    destination = self._member_path(member, target_dir)
+                    installed = self._existing_named_file(destination.parent, destination.name)
+                    if installed is not None:
+                        actual_hash, actual_size = _hash_file(installed)
+                        if actual_hash != member["sha256"] or actual_size != member["size"]:
+                            raise ConflictError(f"{installed.name} was changed outside the manager. The profile was not applied.")
+            for record in mods:
+                self.set_mod_enabled(str(record["id"]), str(record["id"]) in wanted)
+            data["active_profile_id"] = profile_id
+            self._write_profiles(data)
+            return {"profiles": data["profiles"], "active_profile_id": profile_id, "mods": self.get_status()["mods"]}
+
+    def delete_profile(self, profile_id: str) -> dict[str, object]:
+        if not isinstance(profile_id, str) or not MOD_ID_PATTERN.fullmatch(profile_id):
+            raise ManagerError("Choose a valid profile.")
+        with self._lock:
+            data = self._read_profiles()
+            remaining = [item for item in data["profiles"] if item["id"] != profile_id]
+            if len(remaining) == len(data["profiles"]):
+                raise ManagerError("That profile no longer exists.")
+            data["profiles"] = remaining
+            if data.get("active_profile_id") == profile_id:
+                data["active_profile_id"] = None
+            self._write_profiles(data)
+            return {"profiles": remaining, "active_profile_id": data["active_profile_id"]}
 
     def _find_mod(self, mods: list[dict[str, object]], mod_id: str) -> dict[str, object]:
         if not MOD_ID_PATTERN.fullmatch(mod_id):
@@ -858,6 +965,10 @@ class ModManager:
                 record["enabled"] = False
 
             self._write_manifest(mods)
+            if self.profiles_path.exists():
+                profile_data = self._read_profiles()
+                profile_data["active_profile_id"] = None
+                self._write_profiles(profile_data)
             return self._describe_mod(record, archive)
 
     def delete_mod(self, mod_id: str) -> dict[str, object]:
@@ -1109,6 +1220,8 @@ class ModManager:
                 "game_running": game_running,
                 "game_check_error": game_check_error,
                 "mods": listed_mods,
+                "profiles": self._read_profiles()["profiles"],
+                "active_profile_id": self._read_profiles()["active_profile_id"],
                 "unmanaged_mods": unmanaged,
                 "loader_status": (
                     "verified"
@@ -1345,6 +1458,16 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
                 return
             if self.path == "/api/mods/adopt":
                 self._handle_mod_adopt()
+                return
+            if self.path == "/api/profiles":
+                body = self._read_json_body()
+                self._send_json(self.manager.save_profile(body.get("name")), 201)
+                return
+            profile_match = re.fullmatch(r"/api/profiles/([0-9a-f]{32})/(apply|delete)", self.path)
+            if profile_match:
+                profile_id, action = profile_match.groups()
+                result = self.manager.apply_profile(profile_id) if action == "apply" else self.manager.delete_profile(profile_id)
+                self._send_json(result)
                 return
             delete_match = re.fullmatch(r"/api/mods/([0-9a-f]{32})/delete", self.path)
             if delete_match:
