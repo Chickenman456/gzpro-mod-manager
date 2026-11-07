@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.9.4"
+APP_VERSION = "1.10.0"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -835,6 +835,7 @@ class ModManager:
         filename: str,
         expected_size: int,
         kind: str = MOD_KIND_OVERRIDE,
+        replace_mod_id: str | None = None,
     ) -> dict[str, object]:
         filename = _safe_mod_filename(filename)
         if kind not in MOD_KINDS:
@@ -873,10 +874,16 @@ class ModManager:
                     raise ManagerError(
                         f"The mod name {stem} is reserved by the game itself."
                     )
-                if any(str(mod["stem"]).casefold() == stem.casefold() for mod in mods):
-                    raise ConflictError(
-                        f"{stem} is already in this manager's library. Disable it before importing again."
-                    )
+                existing = next(
+                    (mod for mod in mods if str(mod["stem"]).casefold() == stem.casefold()),
+                    None,
+                )
+                if existing and not replace_mod_id:
+                    raise ConflictError(f"MOD_REPLACE_REQUIRED:{existing['id']}:{stem}")
+                if replace_mod_id and (not existing or str(existing["id"]) != replace_mod_id):
+                    raise ConflictError("The mod selected for replacement has changed. Refresh the mod list and try again.")
+                if existing and existing["kind"] != kind:
+                    raise ManagerError("The existing mod uses a different install type. Remove it before changing its type.")
 
                 deployed_stem = self._deployed_stem(stem, kind)
                 for member in members:
@@ -889,9 +896,83 @@ class ModManager:
                     )
                     member["name"] = deployed_stem + suffix.lower()
 
-                if kind == MOD_KIND_BLUEPRINT:
+                if kind == MOD_KIND_BLUEPRINT and (not existing or bool(existing["enabled"])):
                     self._check_logic_mods_path(create=True)
                 self._require_game_closed()
+                if existing:
+                    old_archive = self._archive_path(existing)
+                    old_hash, old_size = _hash_file(old_archive) if old_archive.is_file() else ("", -1)
+                    if old_hash != existing["sha256"] or old_size != existing["size"]:
+                        raise StateError("The existing mod backup failed its integrity check. It was not replaced.")
+                    old_target = self._mod_target_dir(existing)
+                    old_installed = []
+                    old_paths = {}
+                    for old_member in existing["members"]:
+                        old_path = self._member_path(old_member, old_target)
+                        installed = self._existing_named_file(old_path.parent, old_path.name)
+                        if installed is not None:
+                            actual_hash, actual_size = _hash_file(installed)
+                            if not existing["enabled"] or actual_hash != old_member["sha256"] or actual_size != old_member["size"]:
+                                raise ConflictError(f"{installed.name} does not match the existing managed mod. It was left untouched.")
+                            old_installed.append(installed)
+                            old_paths[str(old_path.resolve()).casefold()] = installed
+                    if existing["enabled"]:
+                        for member in members:
+                            destination = self._member_path(member, self._mod_target_dir({"kind": kind}))
+                            installed = self._existing_named_file(destination.parent, destination.name)
+                            if installed is not None and str(destination.resolve()).casefold() not in old_paths:
+                                raise ConflictError(f"{installed.name} already exists outside the mod being replaced. It was not overwritten.")
+                        for installed in old_installed:
+                            installed.unlink()
+                        try:
+                            self._deploy_members(archive_path, members, self._mod_target_dir({"kind": kind}))
+                        except Exception:
+                            for member in members:
+                                destination = self._member_path(member, self._mod_target_dir({"kind": kind}))
+                                installed = self._existing_named_file(destination.parent, destination.name)
+                                if installed is not None:
+                                    actual_hash, actual_size = _hash_file(installed)
+                                    if actual_hash == member["sha256"] and actual_size == member["size"]:
+                                        installed.unlink()
+                            self._deploy_members(old_archive, existing["members"], old_target)
+                            raise
+                    previous_archive = self.archive_dir / f".{existing['id']}.previous"
+                    previous_archive.unlink(missing_ok=True)
+                    old_archive.rename(previous_archive)
+                    try:
+                        archive_path.rename(old_archive)
+                        new_record = {
+                            **existing,
+                            "filename": filename,
+                            "stem": stem,
+                            "kind": kind,
+                            "sha256": digest.hexdigest(),
+                            "size": received,
+                            "description": description,
+                            "thumbnail": thumbnail,
+                            "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                            "members": members,
+                        }
+                        mods = [new_record if item["id"] == existing["id"] else item for item in mods]
+                        self._write_manifest(mods)
+                    except Exception:
+                        if old_archive.exists():
+                            old_archive.unlink()
+                        previous_archive.rename(old_archive)
+                        if existing["enabled"]:
+                            for member in members:
+                                destination = self._member_path(member, self._mod_target_dir({"kind": kind}))
+                                installed = self._existing_named_file(destination.parent, destination.name)
+                                if installed is not None:
+                                    actual_hash, actual_size = _hash_file(installed)
+                                    if actual_hash == member["sha256"] and actual_size == member["size"]:
+                                        installed.unlink()
+                            self._deploy_members(old_archive, existing["members"], old_target)
+                        raise
+                    previous_archive.unlink(missing_ok=True)
+                    return self._describe_mod(new_record, old_archive)
+                if kind == MOD_KIND_BLUEPRINT:
+                    self._check_logic_mods_path(create=True)
                 self._deploy_members(archive_path, members, self._mod_target_dir({"kind": kind}))
             except Exception:
                 archive_path.unlink(missing_ok=True)
@@ -1059,6 +1140,7 @@ class ModManager:
             "id": record["id"],
             "filename": record["filename"],
             "stem": record["stem"],
+            "display_name": str(record.get("display_name") or record["stem"]),
             "description": str(record.get("description", "")),
             "thumbnail": record.get("thumbnail"),
             "kind": record["kind"],
@@ -1072,6 +1154,19 @@ class ModManager:
             "conflict": conflict,
             "partial": 0 < installed_count < len(members),
         }
+
+    def rename_mod(self, mod_id: str, display_name: str) -> dict[str, object]:
+        if not isinstance(display_name, str):
+            raise ManagerError("Enter a name for this mod.")
+        display_name = display_name.strip()
+        if not display_name or len(display_name) > 64 or any(ord(ch) < 32 for ch in display_name):
+            raise ManagerError("Mod names must be 1–64 characters.")
+        with self._lock:
+            mods = self._read_manifest()
+            record = self._find_mod(mods, mod_id)
+            record["display_name"] = display_name
+            self._write_manifest(mods)
+            return {"id": mod_id, "display_name": display_name}
 
     def adopt_unmanaged_mod(self, location: str, stem: str) -> dict[str, object]:
         """Back up and register an existing loose mod without changing its game files."""
@@ -1506,6 +1601,11 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
             if self.path == "/api/mods":
                 self._handle_mod_upload()
                 return
+            rename_match = re.fullmatch(r"/api/mods/([0-9a-f]{32})/rename", self.path)
+            if rename_match:
+                body = self._read_json_body()
+                self._send_json(self.manager.rename_mod(rename_match.group(1), body.get("display_name")))
+                return
             if self.path == "/api/mods/adopt":
                 self._handle_mod_adopt()
                 return
@@ -1587,8 +1687,9 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
             raise ManagerError("That package exceeds the 8 GiB upload limit.")
         filename = unquote(self.headers.get("X-Mod-Name", ""))
         kind = unquote(self.headers.get("X-Mod-Kind", MOD_KIND_OVERRIDE))
+        replace_mod_id = self.headers.get("X-Replace-Mod-Id")
         try:
-            result = self.manager.install_mod(self.rfile, filename, length, kind)
+            result = self.manager.install_mod(self.rfile, filename, length, kind, replace_mod_id)
         except ManagerError:
             self.close_connection = True
             raise
