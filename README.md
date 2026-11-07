@@ -45,7 +45,7 @@ Standard cooked container files must share the same mod name and sit at the zip 
 
 ## Current scope and safety
 
-- Accepts only `.zip` mod packages in the format above, ignoring common root-level documentation files; it does not inspect the cooked assets or confirm they were cooked for a compatible engine. A raw WAV or loose `.uasset` cannot be dropped in directly — cook it into a container first.
+- Accepts `.zip` mod packages containing cooked IoStore files, combined skin-loader packages, or game-root UE4SS layouts. UE4SS packages may include the exact proxy path `GZPro/Binaries/Win64/dwmapi.dll` and files beneath `GZPro/Binaries/Win64/ue4ss/`; arbitrary DLL locations remain unsupported. The manager does not inspect code inside DLLs or scripts, so only install packages from sources you trust. A raw WAV or loose `.uasset` cannot be dropped in directly — cook it into a container first.
 - Keeps a SHA-256-checked backup of every package under `%LOCALAPPDATA%\GZProModManager`.
 - Can disable a managed mod only when every deployed file still matches its saved hash. Re-enabling refuses to overwrite a same-named file that differs.
 - Can permanently delete a managed mod and its backup. Deletion first verifies the backup and every installed file; if a file was changed outside the manager, it is left untouched and deletion is blocked.
@@ -78,3 +78,10 @@ The Game Install panel includes a Launch Game button. It starts the configured g
 ### Mod names and updating installed mods
 
 Click a managed mod title to set a display name. This changes only the manager label, not game files. Importing another ZIP with the same mod name offers to replace the existing version. The manager keeps the mod ID and profile references, verifies the old backup and installed files, and restores the previous version if deployment fails.
+
+
+### UE4SS character packages and troubleshooting (v1.11.0)
+
+Drag a mod ZIP anywhere onto the manager window. In addition to the existing cooked and GZSkinLoader layouts, the manager recognizes game-root UE4SS packages containing `GZPro/Binaries/Win64/dwmapi.dll`, files beneath `GZPro/Binaries/Win64/ue4ss/`, and cooked containers beneath `GZPro/Content/Paks/~mods/`. These files are installed to their matching game-relative locations and included in the mod's verified backup, enable/disable, and delete operations. A different existing DLL or runtime file is never overwritten.
+
+The Troubleshooting tab explains common import and installation errors. When an operation fails, the manager displays the likely cause and next step below the error, with a Copy error details action. UE4SS-based character and skin mods for this game require a UE5.8-compatible experimental UE4SS build. The manager can stage files from the package, but it cannot guarantee that third-party DLLs or scripts are safe or compatible.
