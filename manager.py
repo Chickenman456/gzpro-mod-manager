@@ -526,7 +526,14 @@ class ModManager:
 
                 # Combined skin packages may contain a single skin-data folder and
                 # the GZSkinLoader script tree. All other folder layouts are rejected.
-                normalized = [(info, info.filename.replace(chr(92), "/").lstrip("./")) for info in cooked_infos]
+                normalized = []
+                for info in cooked_infos:
+                    name = info.filename.replace(chr(92), "/")
+                    while name.startswith("./"):
+                        name = name[2:]
+                    if not name or name.startswith("/") or any(part in {"", ".", ".."} for part in name.split("/")):
+                        raise ManagerError(f"Unsafe path in the package: {info.filename}")
+                    normalized.append((info, name))
                 has_loader = any(name.startswith("GZSkinLoader/") for _, name in normalized)
                 skin_infos = []
                 loader_infos = []
@@ -581,11 +588,15 @@ class ModManager:
                     suffix = Path(entry).suffix.casefold()
                     if suffix not in MOD_MEMBER_SUFFIXES:
                         raise ManagerError(f"Unsupported file in the package: {entry}")
-                    current_stem = _safe_mod_stem(folder or Path(entry).stem)
+                    current_stem = _safe_mod_stem(Path(entry).stem)
+                    if folder and current_stem.casefold() not in {
+                        folder.casefold(), (folder + "_P").casefold()
+                    }:
+                        raise ManagerError("The skin container files must match their containing folder name.")
                     if skin_stem is None:
                         skin_stem = current_stem
-                    elif current_stem != skin_stem or Path(entry).stem != skin_stem:
-                        raise ManagerError("The skin container files and their folder must use the same mod name.")
+                    elif current_stem != skin_stem:
+                        raise ManagerError("Every skin container file must use the same mod name.")
                     if suffix in suffixes:
                         raise ManagerError(f"The package contains more than one {suffix} file.")
                     suffixes.add(suffix)
