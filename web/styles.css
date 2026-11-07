@@ -147,3 +147,10 @@ footer strong { color: #cbd2df; }
 .changelog-entry-heading strong { overflow-wrap: anywhere; }
 .changelog-entry-heading a { flex: 0 0 auto; color: #76c9f4; font-family: ui-monospace, Consolas, monospace; font-size: .82rem; }
 .changelog-entry > span { display: block; margin-top: .3rem; color: #a6acbb; font-size: .84rem; }
+
+
+.update-panel { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 1rem auto 0; width: min(100% - 2rem, 960px); border: 1px solid #42617a; border-radius: 10px; padding: .9rem 1rem; background: #172431; }
+.update-panel[hidden] { display: none; }
+.update-panel p { margin: .3rem 0 0; }
+.update-panel a { color: #76c9f4; white-space: nowrap; }
+@media (max-width: 650px) { .update-panel { align-items: flex-start; flex-direction: column; } }
