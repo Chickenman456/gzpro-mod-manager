@@ -850,7 +850,7 @@ class ModManager:
                         f"GZPro/Content/Paks/~mods/{current_stem}{suffix}"
                         if composite_package else None
                     )
-                    add_member(info, entry, skin_stem + suffix, target)
+                    add_member(info, entry, current_stem + suffix, target)
 
                 if skin_stem:
                     allowed_folder_names = {skin_stem.casefold(), (skin_stem + "_P").casefold()}
