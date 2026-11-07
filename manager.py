@@ -1152,7 +1152,7 @@ def get_latest_release() -> dict[str, object]:
         "can_install": sys.platform == "win32" and getattr(sys, "frozen", False),
         "latest_version": tag.lstrip("v"),
         "tag": tag,
-        "update_available": tag.lstrip("v") != APP_VERSION,
+        "update_available": tuple(int(part) for part in tag[1:].split(".")) > tuple(int(part) for part in APP_VERSION.split(".")),
         "download_url": asset["browser_download_url"],
         "digest": asset.get("digest"),
         "release_url": release.get("html_url", "https://github.com/Chickenman456/gzpro-mod-manager/releases"),
@@ -1168,6 +1168,19 @@ def schedule_self_update(release: dict[str, object]) -> None:
         raise ManagerError("The running application path is not the expected manager executable.")
     update_dir = _default_state_base() / "updates"
     update_dir.mkdir(parents=True, exist_ok=True)
+    # Stage beside the running executable so replacement stays on the same volume.
+    write_probe = current_exe.with_name(f".{current_exe.stem}-{uuid.uuid4().hex}.write-test")
+    try:
+        with write_probe.open("xb") as probe:
+            probe.write(b"update permission check")
+        write_probe.unlink()
+    except OSError as error:
+        write_probe.unlink(missing_ok=True)
+        raise ManagerError(
+            "Windows does not allow the updater to write beside GZProModManager.exe. "
+            "Move the manager to a folder your Windows account can modify, then try again."
+        ) from error
+
     downloaded = update_dir / f"GZProModManager-{uuid.uuid4().hex}.exe"
     request = urllib.request.Request(
         str(release["download_url"]),
@@ -1183,6 +1196,8 @@ def schedule_self_update(release: dict[str, object]) -> None:
                     raise ManagerError("The downloaded update is larger than the 100 MB safety limit.")
                 digest.update(chunk)
                 output.write(chunk)
+            output.flush()
+            os.fsync(output.fileno())
         with downloaded.open("rb") as stream:
             if stream.read(2) != b"MZ":
                 raise ManagerError("The downloaded update is not a valid Windows executable.")
@@ -1191,18 +1206,30 @@ def schedule_self_update(release: dict[str, object]) -> None:
             if digest.hexdigest().casefold() != expected_digest[7:].casefold():
                 raise ManagerError("The downloaded update failed GitHub's SHA-256 integrity check.")
         script = update_dir / f"install-{uuid.uuid4().hex}.ps1"
+        log_file = update_dir / "update-install.log"
         quote = lambda value: "'" + str(value).replace("'", "''") + "'"
         script.write_text(
-            "$ErrorActionPreference = 'Stop'\n"
-            f"$target = {quote(current_exe)}\n"
-            f"$source = {quote(downloaded)}\n"
-            f"$managerProcessId = {os.getpid()}\n"
-            "while (Get-Process -Id $managerProcessId -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }\n"
-            "Copy-Item -LiteralPath $source -Destination $target -Force\n"
-            "$staged = $target + '.update'\n"
-            "try { Copy-Item -LiteralPath $source -Destination $staged -Force; Move-Item -LiteralPath $staged -Destination $target -Force; Start-Process -FilePath $target } catch { Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue; Start-Process -FilePath $target }\n"
-            "Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue\n"
-            "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\n",
+            "$ErrorActionPreference = 'Stop'\\n"
+            f"$target = {quote(current_exe)}\\n"
+            f"$source = {quote(downloaded)}\\n"
+            f"$logPath = {quote(log_file)}\\n"
+            f"$managerProcessId = {os.getpid()}\\n"
+            "$staged = $target + '.update'\\n"
+            "try {\\n"
+            "  while (Get-Process -Id $managerProcessId -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }\\n"
+            "  Copy-Item -LiteralPath $source -Destination $staged -Force\\n"
+            "  if (!(Test-Path -LiteralPath $staged) -or (Get-Item -LiteralPath $staged).Length -lt 1024) { throw 'The staged update file is missing or incomplete.' }\\n"
+            "  try { [System.IO.File]::Replace($staged, $target, $null) } catch { Move-Item -LiteralPath $staged -Destination $target -Force }\\n"
+            "  Start-Process -FilePath $target\\n"
+            "  Add-Content -LiteralPath $logPath -Value ('Installed ' + (Get-Date -Format o))\\n"
+            "} catch {\\n"
+            "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' ' + $_.Exception.Message)\\n"
+            "  Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue\\n"
+            "  if (Test-Path -LiteralPath $target) { Start-Process -FilePath $target }\\n"
+            "} finally {\\n"
+            "  Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue\\n"
+            "  Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\\n"
+            "}\\n",
             encoding="utf-8",
         )
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
@@ -1211,9 +1238,12 @@ def schedule_self_update(release: dict[str, object]) -> None:
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=flags, close_fds=True,
         )
-    except Exception:
+    except ManagerError:
         downloaded.unlink(missing_ok=True)
         raise
+    except (OSError, urllib.error.URLError, subprocess.SubprocessError) as error:
+        downloaded.unlink(missing_ok=True)
+        raise ManagerError(f"Could not prepare the update: {error}") from error
 
 
 class ManagerRequestHandler(SimpleHTTPRequestHandler):
