@@ -1026,12 +1026,7 @@ class ModManager:
                 for member in members:
                     if "target" in member:
                         continue
-                    source_name = (
-                        str(member["name"])
-                        if member.get("entry") is None
-                        else Path(str(member["entry"])).name
-                    )
-                    member_stem = Path(source_name).stem
+                    member_stem = Path(str(member["name"])).stem
                     suffix = (
                         str(member.get("suffix"))
                         if member.get("entry") is None
