@@ -50,7 +50,7 @@ Standard cooked container files must share the same mod name and sit at the zip 
 - Can disable a managed mod only when every deployed file still matches its saved hash. Re-enabling refuses to overwrite a same-named file that differs.
 - Can permanently delete a managed mod and its backup. Deletion first verifies the backup and every installed file; if a file was changed outside the manager, it is left untouched and deletion is blocked.
 - Refuses enable/disable/import operations while `GZProSteam-Win64-Shipping.exe` is running.
-- Never edits or replaces the game's original `GZPro-Windows.*` or `global.*` archives, and refuses mod names that would collide with them. It does not install or enable UE4SS.
+- Never edits or replaces the game's original `GZPro-Windows.*` or `global.*` archives, and refuses mod names that would collide with them. It can stage UE4SS files only when they are explicitly included in a trusted mod ZIP; it does not download UE4SS separately or manage its global enable/disable state.
 - Detects loose `.pak`, `.utoc`, and `.ucas` files in `Paks` and `LogicMods`, groups matching names, and lets you adopt them. Adoption creates a verified backup without changing the installed files; adopted mods can then be disabled and re-enabled. Disable refuses to remove any file whose hash no longer matches the backup.
 
 **Important:** only install mods you trust. The manager verifies file integrity, not mod behavior.
