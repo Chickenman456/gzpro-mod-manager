@@ -4,7 +4,7 @@ const byId = (id) => document.getElementById(id);
 
  
 function selectTab(name) {
-  for (const page of ["mods", "changelog"]) {
+  for (const page of ["mods", "changelog", "troubleshooting"]) {
     const active = name === page;
     byId("tab-" + page).classList.toggle("active", active);
     byId("tab-" + page).setAttribute("aria-selected", String(active));
@@ -121,10 +121,47 @@ function formatSize(bytes) {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
 
+function explainError(message) {
+  const value = String(message || "").toLowerCase();
+  const guidance = [
+    [/unsupported file or folder|unsupported file in the package|unsupported game paks path/, "The ZIP contains a file or folder layout the manager does not recognize.", "Use the mod's original ZIP. UE4SS packages must keep the GZPro/Binaries/Win64/dwmapi.dll and GZPro/Binaries/Win64/ue4ss folder paths. Do not rename or flatten the folders."],
+    [/not a valid \.zip|upload a single \.zip|selected \.zip package is empty/, "The selected file is not a complete ZIP archive.", "Download the ZIP again from the mod page. Do not extract it before importing."],
+    [/must contain the cooked mod's \.utoc and \.ucas|without a container|no supported mod files/, "The package is missing the cooked game files or a recognized UE4SS mod folder.", "Check the mod's installation instructions. A cooked asset mod needs matching .utoc and .ucas files; a UE4SS mod needs its files under the ue4ss folder."],
+    [/already exists in|already present but differs|not overwritten|does not match/, "A file with that name is already in the game folder, and its contents do not match this package.", "The manager stopped to protect the existing file. Check whether another mod or UE4SS installation already uses it. Do not overwrite DLLs manually unless you know which version is required."],
+    [/close the game before|game must be closed|game is running/, "The game is currently running. Windows can lock files while the game is open.", "Exit the game completely, wait a few seconds, then retry the import or action."],
+    [/game folder does not exist|could not find .* in that game folder|paks folder is missing|game installation/, "The selected folder is not the game's valid installation directory.", "Select the folder that contains the GZPro folder, not GZPro itself or the Binaries folder."],
+    [/permission|access is denied|winerror 5/, "Windows is preventing the manager from writing to the game folder or its backup folder.", "Close the game and other mod tools. Check that the game folder and %LOCALAPPDATA%\\GZProModManager are writable. Avoid installing the manager inside a protected Windows folder."],
+    [/backup.*missing|backup.*integrity|recovery manifest/, "The manager cannot verify the saved backup it needs to safely change this mod.", "Do not delete the remaining files manually. Keep the current game files in place and use Report a bug with the full error details."],
+    [/ue4ss.*not detected|ue4ss is not installed/, "The game does not have the UE4SS loader files in the expected Win64 locations.", "This game needs a UE5.8-compatible experimental UE4SS build. Its dwmapi.dll belongs beside GZProSteam-Win64-Shipping.exe, and its ue4ss folder belongs beside that DLL."],
+    [/could not check github|update.*failed|download.*failed/, "The updater could not complete its connection or file replacement.", "Check your internet connection, close other manager instances, and retry. If it still fails, include update-install.log when reporting the issue."]
+  ];
+  const match = guidance.find(([pattern]) => pattern.test(value));
+  return match ? { cause: match[1], fix: match[2] } : {
+    cause: "The manager stopped because an operation could not be completed safely.",
+    fix: "Refresh the mod list and retry once. If the same error returns, use Copy error details and Report a bug so the exact cause can be identified."
+  };
+}
+
 function setMessage(message, isError = false) {
   const element = byId("action-message");
   element.textContent = message;
   element.classList.toggle("error", isError);
+  const help = byId("error-help");
+  if (!isError || !help) {
+    if (help) help.hidden = true;
+    return;
+  }
+  const guidance = explainError(message);
+  byId("error-cause").textContent = guidance.cause;
+  byId("error-fix").textContent = guidance.fix;
+  help.hidden = false;
+  byId("copy-error").onclick = () => {
+    const details = message + "\n\nCause: " + guidance.cause + "\nSuggested fix: " + guidance.fix;
+    navigator.clipboard?.writeText(details).then(
+      () => { byId("copy-error").textContent = "Copied"; },
+      () => { byId("copy-error").textContent = "Copy unavailable"; }
+    );
+  };
 }
 
 async function requestJson(url, options = {}) {
@@ -180,7 +217,7 @@ function renderStatus(status) {
       const stateLabel = mod.conflict ? "File changed outside the manager" : (mod.enabled ? "Enabled" : "Disabled");
       const disabled = state.busy || !status.game_valid || status.game_running || status.game_check_error || mod.conflict || !mod.backup_available;
       const deleteDisabled = state.busy || !status.game_valid || status.game_running || status.game_check_error || !mod.backup_available;
-      const kindLabel = mod.kind === "blueprint" ? "Blueprint · LogicMods" : "Asset override · Paks";
+      const kindLabel = mod.requires_ue4ss ? "UE4SS · Character / skin mod" : (mod.kind === "blueprint" ? "Blueprint · LogicMods" : "Asset override · Paks");
       const thumbnail = mod.thumbnail ? `<img class="mod-thumbnail" src="${escapeHtml(mod.thumbnail)}" alt="${escapeHtml(mod.stem || "Mod")} thumbnail">` : "";
       const description = mod.description ? `<p class="mod-description">${escapeHtml(mod.description)}</p>` : "";
       return `<article class="mod-card ${mod.enabled ? "" : "mod-card-disabled"}">
@@ -315,9 +352,11 @@ async function importFile(file) {
       if (!replace) { setMessage("Existing mod was left unchanged."); return; }
       mod = await uploadFile(file, kind, error.replaceModId);
     }
-    const note = mod.kind === "blueprint"
-      ? "UE4SS loads it the next time the game starts."
-      : "It overrides the game's original assets the next time the game starts.";
+    const note = mod.requires_ue4ss
+      ? "UE4SS files were included or detected. The mod will load the next time the game starts."
+      : (mod.kind === "blueprint"
+        ? "UE4SS loads it the next time the game starts."
+        : "It overrides the game's original assets the next time the game starts.");
     setMessage(`${mod.stem || mod.filename} was deployed (${mod.file_count} files). ${note}`);
   } catch (error) {
     setMessage(`Import failed: ${error.message}`, true);
@@ -460,6 +499,7 @@ byId("check-updates").addEventListener("click", checkForUpdates);
 byId("install-update").addEventListener("click", installUpdate);
 byId("tab-mods").addEventListener("click", () => selectTab("mods"));
 byId("tab-changelog").addEventListener("click", () => selectTab("changelog"));
+byId("tab-troubleshooting").addEventListener("click", () => selectTab("troubleshooting"));
 byId("refresh-changelog").addEventListener("click", loadChangelog);
 
 byId("mod-file").addEventListener("change", (event) => importFile(event.target.files[0]));
@@ -480,18 +520,37 @@ byId("game-dir-form").addEventListener("submit", async (event) => {
 });
 
 const dropZone = byId("drop-zone");
-for (const eventName of ["dragenter", "dragover"]) {
-  dropZone.addEventListener(eventName, (event) => {
-    event.preventDefault();
-    dropZone.classList.add("dragging");
-  });
-}
-for (const eventName of ["dragleave", "drop"]) {
-  dropZone.addEventListener(eventName, (event) => {
-    event.preventDefault();
+let dragDepth = 0;
+window.addEventListener("dragenter", (event) => {
+  if (!event.dataTransfer?.types?.includes("Files")) return;
+  event.preventDefault();
+  dragDepth += 1;
+  document.body.classList.add("file-dragging");
+  dropZone.classList.add("dragging");
+});
+window.addEventListener("dragover", (event) => {
+  if (!event.dataTransfer?.types?.includes("Files")) return;
+  event.preventDefault();
+});
+window.addEventListener("dragleave", (event) => {
+  if (!event.dataTransfer?.types?.includes("Files")) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) {
+    document.body.classList.remove("file-dragging");
     dropZone.classList.remove("dragging");
-  });
-}
-dropZone.addEventListener("drop", (event) => importFile(event.dataTransfer.files[0]));
+  }
+});
+window.addEventListener("drop", (event) => {
+  if (!event.dataTransfer?.files?.length) return;
+  event.preventDefault();
+  dragDepth = 0;
+  document.body.classList.remove("file-dragging");
+  dropZone.classList.remove("dragging");
+  if (event.dataTransfer.files.length > 1) {
+    setMessage("Drop one mod ZIP at a time so each installation can be checked and backed up separately.", true);
+    return;
+  }
+  importFile(event.dataTransfer.files[0]);
+});
 
 refreshStatus();
