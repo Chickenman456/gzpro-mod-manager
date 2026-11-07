@@ -782,11 +782,22 @@ class ModManager:
                     for _, entry, folder in skin_infos
                 )
                 container_groups: dict[str, dict[str, object]] = {}
+                single_container = (
+                    sum(Path(entry).suffix.casefold() == ".utoc" for _, entry, _ in skin_infos) == 1
+                    and sum(Path(entry).suffix.casefold() == ".ucas" for _, entry, _ in skin_infos) == 1
+                    and sum(Path(entry).suffix.casefold() == ".pak" for _, entry, _ in skin_infos) <= 1
+                )
+                single_container_stem = next(
+                    (Path(entry).stem for _, entry, _ in skin_infos if Path(entry).suffix.casefold() == ".utoc"),
+                    None,
+                )
                 for info, entry, folder in skin_infos:
                     suffix = Path(entry).suffix.casefold()
                     if suffix not in MOD_MEMBER_SUFFIXES:
                         raise ManagerError(f"Unsupported file in the package: {entry}")
-                    current_stem = _safe_mod_stem(Path(entry).stem)
+                    current_stem = _safe_mod_stem(
+                        str(single_container_stem) if single_container else Path(entry).stem
+                    )
                     key = current_stem.casefold()
                     group = container_groups.setdefault(key, {"stem": current_stem, "folder": folder, "files": {}})
                     if folder and group["folder"] and folder.casefold() != str(group["folder"]).casefold():
