@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.11.0"
+APP_VERSION = "1.11.1"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -229,6 +229,10 @@ class ModManager:
     @property
     def manifest_path(self) -> Path:
         return self._game_state_dir() / "manifest.json"
+
+    @property
+    def unmanaged_cache_path(self) -> Path:
+        return self._game_state_dir() / "unmanaged-cache.json"
 
     @property
     def paks_dir(self) -> Path:
@@ -1389,6 +1393,77 @@ class ModManager:
 
             return self._describe_mod(record, archive_path)
 
+    def _unmanaged_cache_signature(self) -> dict[str, int | None]:
+        """Return cheap directory/manifest metadata used to invalidate the startup scan cache."""
+        signature: dict[str, int | None] = {}
+        for key, path in (("paks", self.paks_dir), ("logic_mods", self.logic_mods_dir), ("manifest", self.manifest_path)):
+            try:
+                stat = path.stat()
+                signature[key] = stat.st_mtime_ns ^ stat.st_size
+            except OSError:
+                signature[key] = None
+        return signature
+
+    def _read_unmanaged_cache(self, signature: dict[str, int | None]) -> list[dict[str, object]] | None:
+        try:
+            data = json.loads(self.unmanaged_cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(data, dict) or data.get("version") != 1 or data.get("signature") != signature:
+            return None
+        items = data.get("mods")
+        if not isinstance(items, list):
+            return None
+        for item in items:
+            if (not isinstance(item, dict) or not isinstance(item.get("stem"), str)
+                    or item.get("location") not in {"Paks", LOGIC_MODS_DIRECTORY}
+                    or not isinstance(item.get("files"), list)
+                    or any(not isinstance(name, str) for name in item["files"])
+                    or not isinstance(item.get("size"), int)):
+                return None
+        return items
+
+    def _write_unmanaged_cache(
+        self, signature: dict[str, int | None], items: list[dict[str, object]]
+    ) -> None:
+        self.unmanaged_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.unmanaged_cache_path.with_name(
+            f".{self.unmanaged_cache_path.name}.{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            with temporary.open("x", encoding="utf-8") as stream:
+                json.dump({"version": 1, "signature": signature, "mods": items}, stream, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.unmanaged_cache_path)
+        except OSError:
+            # The cache is an optimization only; status must remain available if it cannot be saved.
+            pass
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _scan_unmanaged_mods(self, managed_names: set[str]) -> list[dict[str, object]]:
+        unmanaged_files = []
+        for directory, location in ((self.logic_mods_dir, LOGIC_MODS_DIRECTORY), (self.paks_dir, "Paks")):
+            if not directory.is_dir() or directory.is_symlink():
+                continue
+            unmanaged_files.extend(
+                (path, location)
+                for path in sorted(directory.iterdir(), key=lambda item: item.name.casefold())
+                if path.is_file()
+                and not path.is_symlink()
+                and path.suffix.casefold() in MOD_MEMBER_SUFFIXES
+                and path.name.casefold() not in managed_names
+                and not (location == "Paks" and path.stem.casefold() in GAME_CONTAINER_STEMS)
+            )
+        grouped: dict[tuple[str, str], dict[str, object]] = {}
+        for path, location in unmanaged_files:
+            key = (location, path.stem.casefold())
+            group = grouped.setdefault(key, {"stem": path.stem, "location": location, "files": [], "size": 0})
+            group["files"].append(path.name)
+            group["size"] += path.stat().st_size
+        return sorted(grouped.values(), key=lambda group: (str(group["location"]).casefold(), str(group["stem"]).casefold()))
+
     def get_status(self) -> dict[str, object]:
         with self._lock:
             game_valid = (
@@ -1414,45 +1489,11 @@ class ModManager:
                     self._describe_mod(record, self._archive_path(record))
                 )
 
-            unmanaged_files = []
-            if self.logic_mods_dir.is_dir() and not self.logic_mods_dir.is_symlink():
-                unmanaged_files.extend(
-                    (path, LOGIC_MODS_DIRECTORY)
-                    for path in sorted(self.logic_mods_dir.iterdir(), key=lambda item: item.name.casefold())
-                    if path.is_file()
-                    and not path.is_symlink()
-                    and path.suffix.casefold() in MOD_MEMBER_SUFFIXES
-                    and path.name.casefold() not in managed_names
-                )
-            if self.paks_dir.is_dir():
-                unmanaged_files.extend(
-                    (path, "Paks")
-                    for path in sorted(self.paks_dir.iterdir(), key=lambda item: item.name.casefold())
-                    if path.is_file()
-                    and not path.is_symlink()
-                    and path.suffix.casefold() in MOD_MEMBER_SUFFIXES
-                    and path.stem.casefold() not in GAME_CONTAINER_STEMS
-                    and path.name.casefold() not in managed_names
-                )
-
-            unmanaged_by_group: dict[tuple[str, str], dict[str, object]] = {}
-            for path, location in unmanaged_files:
-                key = (location, path.stem.casefold())
-                group = unmanaged_by_group.setdefault(
-                    key,
-                    {
-                        "stem": path.stem,
-                        "location": location,
-                        "files": [],
-                        "size": 0,
-                    },
-                )
-                group["files"].append(path.name)
-                group["size"] += path.stat().st_size
-            unmanaged = sorted(
-                unmanaged_by_group.values(),
-                key=lambda group: (str(group["location"]).casefold(), str(group["stem"]).casefold()),
-            )
+            cache_signature = self._unmanaged_cache_signature()
+            unmanaged = self._read_unmanaged_cache(cache_signature)
+            if unmanaged is None:
+                unmanaged = self._scan_unmanaged_mods(managed_names)
+                self._write_unmanaged_cache(cache_signature, unmanaged)
 
             binaries_dir = self.game_executable.parent
             ue4ss_installed = game_valid and all(
@@ -1598,10 +1639,13 @@ def schedule_self_update(release: dict[str, object]) -> None:
             "  Copy-Item -LiteralPath $target -Destination $backup -Force\n"
             "  Move-Item -LiteralPath $staged -Destination $target -Force\n"
             "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Replaced executable; starting updated manager')\n"
-            "  $started = Start-Process -FilePath $target -PassThru\n"
-            "  Start-Sleep -Seconds 8\n"
+            "  $started = Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target) -PassThru\n"
+            "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Started updated manager process: ' + $started.Id)\n"
+            "  $ready = $started.WaitForInputIdle(30000)\n"
+            "  if (!$ready) { throw 'Updated manager did not become ready within 30 seconds.' }\n"
+            "  Start-Sleep -Seconds 3\n"
             "  $started.Refresh()\n"
-            "  if ($started.HasExited) { throw ('Updated manager exited during startup (exit code ' + $started.ExitCode + ').') }\n"
+            "  if ($started.HasExited) { throw ('Updated manager exited during startup (exit code ' + $started.ExitCode + ').') }"
             "  Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue\n"
             "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Update succeeded; new manager process is running')\n"
             "} catch {\n"
@@ -1611,7 +1655,7 @@ def schedule_self_update(release: dict[str, object]) -> None:
             "      if ($started -and !$started.HasExited) { Stop-Process -Id $started.Id -Force -ErrorAction SilentlyContinue }\n"
             "      Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue\n"
             "      Move-Item -LiteralPath $backup -Destination $target -Force\n"
-            "      Start-Process -FilePath $target\n"
+            "      Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target)\n"
             "      Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Restored previous manager and restarted it')\n"
             "    } catch { Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' ROLLBACK ERROR: ' + $_.Exception.Message) }\n"
             "  } elseif (Test-Path -LiteralPath $target) { Start-Process -FilePath $target }\n"
