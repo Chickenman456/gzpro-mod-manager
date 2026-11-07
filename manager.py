@@ -12,6 +12,8 @@ import subprocess
 import sys
 import threading
 import uuid
+import urllib.error
+import urllib.request
 import webbrowser
 import zipfile
 from datetime import datetime, timezone
@@ -30,6 +32,8 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
+APP_VERSION = "1.5.0"
+GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 MOD_MEMBER_SUFFIXES = frozenset({".pak", ".utoc", ".ucas"})
@@ -1021,6 +1025,95 @@ class ModManager:
             }
 
 
+
+def get_latest_release() -> dict[str, object]:
+    request = urllib.request.Request(
+        GITHUB_RELEASE_API,
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "GZPro-Mod-Manager"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            release = json.loads(response.read(2 * 1024 * 1024))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        raise ManagerError(f"Could not check GitHub for updates: {error}") from error
+    if not isinstance(release, dict) or release.get("draft") or release.get("prerelease"):
+        raise ManagerError("GitHub did not return a published stable release.")
+    tag = release.get("tag_name")
+    assets = release.get("assets")
+    if not isinstance(tag, str) or not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+        raise ManagerError("The latest GitHub release has an invalid version tag.")
+    if not isinstance(assets, list):
+        raise ManagerError("The latest GitHub release has no valid asset list.")
+    asset = next((item for item in assets if isinstance(item, dict) and item.get("name") == "GZProModManager.exe"), None)
+    if not asset or not isinstance(asset.get("browser_download_url"), str):
+        raise ManagerError("The latest release does not include GZProModManager.exe.")
+    return {
+        "current_version": APP_VERSION,
+        "latest_version": tag.lstrip("v"),
+        "tag": tag,
+        "update_available": tag.lstrip("v") != APP_VERSION,
+        "download_url": asset["browser_download_url"],
+        "digest": asset.get("digest"),
+        "release_url": release.get("html_url", "https://github.com/Chickenman456/gzpro-mod-manager/releases"),
+        "published_at": release.get("published_at", ""),
+    }
+
+
+def schedule_self_update(release: dict[str, object]) -> None:
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        raise ManagerError("In-app installation is available in the Windows executable, not the Python source version.")
+    current_exe = Path(sys.executable).resolve()
+    if current_exe.name.casefold() != "gzpromodmanager.exe":
+        raise ManagerError("The running application path is not the expected manager executable.")
+    update_dir = _default_state_base() / "updates"
+    update_dir.mkdir(parents=True, exist_ok=True)
+    downloaded = update_dir / f"GZProModManager-{uuid.uuid4().hex}.exe"
+    request = urllib.request.Request(
+        str(release["download_url"]),
+        headers={"User-Agent": "GZPro-Mod-Manager", "Accept": "application/octet-stream"},
+    )
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response, downloaded.open("xb") as output:
+            while chunk := response.read(1024 * 1024):
+                size += len(chunk)
+                if size > 100 * 1024 * 1024:
+                    raise ManagerError("The downloaded update is larger than the 100 MB safety limit.")
+                digest.update(chunk)
+                output.write(chunk)
+        with downloaded.open("rb") as stream:
+            if stream.read(2) != b"MZ":
+                raise ManagerError("The downloaded update is not a valid Windows executable.")
+        expected_digest = release.get("digest")
+        if isinstance(expected_digest, str) and expected_digest.startswith("sha256:"):
+            if digest.hexdigest().casefold() != expected_digest[7:].casefold():
+                raise ManagerError("The downloaded update failed GitHub's SHA-256 integrity check.")
+        script = update_dir / f"install-{uuid.uuid4().hex}.ps1"
+        quote = lambda value: "'" + str(value).replace("'", "''") + "'"
+        script.write_text(
+            "$ErrorActionPreference = 'Stop'\n"
+            f"$target = {quote(current_exe)}\n"
+            f"$source = {quote(downloaded)}\n"
+            f"$processId = {os.getpid()}\n"
+            "while (Get-Process -Id $processId -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }\n"
+            "Copy-Item -LiteralPath $source -Destination $target -Force\n"
+            "Start-Process -FilePath $target\n"
+            "Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue\n"
+            "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\n",
+            encoding="utf-8",
+        )
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+        subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=flags, close_fds=True,
+        )
+    except Exception:
+        downloaded.unlink(missing_ok=True)
+        raise
+
+
 class ManagerRequestHandler(SimpleHTTPRequestHandler):
     server_version = "GZProModManager/0.1"
     manager: ModManager
@@ -1076,6 +1169,12 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
         self._send_json({"error": "The request failed. Check the manager terminal for details."}, 500)
 
     def do_GET(self) -> None:
+        if self.path == "/api/update/check":
+            try:
+                self._send_json(get_latest_release())
+            except ManagerError as error:
+                self._send_manager_error(error)
+            return
         if self.path == "/api/status":
             try:
                 self._send_json(self.manager.get_status())
@@ -1093,6 +1192,14 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "Requests must come from this local manager page."}, 403)
             return
         try:
+            if self.path == "/api/update/install":
+                release = get_latest_release()
+                if not release["update_available"]:
+                    raise ManagerError("The manager is already up to date.")
+                schedule_self_update(release)
+                self._send_json({"scheduled": True, "version": release["latest_version"]})
+                threading.Timer(2.5, lambda: os._exit(0)).start()
+                return
             if self.path == "/api/game-dir":
                 self._handle_game_dir()
                 return
@@ -1217,15 +1324,28 @@ def main() -> int:
         return 1
 
     address = f"http://127.0.0.1:{server.server_port}/"
-    print(f"GZPro Mod Manager is running at {address}", flush=True)
-    print("Keep this window open while using the manager. Press Ctrl+C to stop.", flush=True)
-    if not args.no_browser:
-        webbrowser.open(address)
+    print(f"GZPro Mod Manager v{APP_VERSION} is running at {address}", flush=True)
+    print("Close the app window to stop the manager.", flush=True)
     try:
+        if not args.no_browser:
+            try:
+                import webview
+                threading.Thread(target=server.serve_forever, daemon=True).start()
+                webview.create_window(
+                    f"GZPro Mod Manager v{APP_VERSION}", address,
+                    width=1180, height=850, min_size=(760, 600),
+                )
+                webview.start()
+                return 0
+            except Exception as error:
+                print(f"Desktop window unavailable ({error}); opening the browser instead.", flush=True)
+        if not args.no_browser:
+            webbrowser.open(address)
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopping GZPro Mod Manager.")
     finally:
+        server.shutdown()
         server.server_close()
     return 0
 
