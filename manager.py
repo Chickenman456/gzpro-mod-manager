@@ -1365,7 +1365,7 @@ def schedule_self_update(release: dict[str, object]) -> None:
             "  }\n"
             "  Copy-Item -LiteralPath $source -Destination $staged -Force\n"
             "  if (!(Test-Path -LiteralPath $staged) -or (Get-Item -LiteralPath $staged).Length -lt 1024) { throw 'The staged update file is missing or incomplete.' }\n"
-            "  $header = [System.IO.File]::ReadAllBytes($staged)[0..1]\n"
+            "  $header = ([System.IO.File]::ReadAllBytes($staged))[0..1]\n"
             "  if ($header[0] -ne 77 -or $header[1] -ne 90) { throw 'The staged update is not a Windows executable.' }\n"
             "  if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }\n"
             "  Copy-Item -LiteralPath $target -Destination $backup -Force\n"
