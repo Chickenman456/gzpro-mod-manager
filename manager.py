@@ -52,6 +52,17 @@ UE4SS_RELATIVE_FILES = (
     Path("dwmapi.dll"),
     Path("ue4ss") / "UE4SS.dll",
 )
+
+def _is_shared_ue4ss_runtime_file(target: object) -> bool:
+    """Return whether a package member is a shared UE4SS installation file."""
+    if not isinstance(target, str):
+        return False
+    normalized = target.replace("\\", "/").casefold()
+    return normalized in {
+        "gzpro/binaries/win64/dwmapi.dll",
+        "gzpro/binaries/win64/ue4ss/ue4ss.dll",
+        "gzpro/binaries/win64/ue4ss/ue4ss-settings.ini",
+    }
 GAME_CHECK_LOCK = threading.Lock()
 STATUS_PROGRESS_LOCK = threading.Lock()
 STATUS_PROGRESS: dict[str, object] = {"active": False, "stage": "Idle"}
@@ -1077,7 +1088,7 @@ class ModManager:
                                 if key not in old_paths:
                                     actual_hash, actual_size = _hash_file(installed)
                                     if actual_hash != member["sha256"] or actual_size != member["size"]:
-                                        if str(member.get("target") or "").casefold() == "gzpro/binaries/win64/dwmapi.dll":
+                                        if _is_shared_ue4ss_runtime_file(member.get("target")):
                                             member["preexisting"] = True
                                             member["preserve_existing"] = True
                                             continue
@@ -1154,7 +1165,7 @@ class ModManager:
                         continue
                     actual_hash, actual_size = _hash_file(installed)
                     if actual_hash != member["sha256"] or actual_size != member["size"]:
-                        if str(member.get("target") or "").casefold() == "gzpro/binaries/win64/dwmapi.dll":
+                        if _is_shared_ue4ss_runtime_file(member.get("target")):
                             # dwmapi.dll is the single shared UE4SS proxy slot. Keep the
                             # user's installed loader and deploy the mod's other files.
                             member["preexisting"] = True
@@ -1219,7 +1230,7 @@ class ModManager:
                 existing = self._existing_named_file(destination.parent, destination.name)
                 if existing is None:
                     continue
-                if member.get("preserve_existing") and str(member.get("target") or "").casefold() == "gzpro/binaries/win64/dwmapi.dll":
+                if member.get("preserve_existing") and _is_shared_ue4ss_runtime_file(member.get("target")):
                     # A different installed proxy DLL belongs to the existing UE4SS
                     # installation. Leave it in place and do not claim ownership.
                     continue
@@ -1310,7 +1321,7 @@ class ModManager:
                 installed = self._existing_named_file(destination.parent, destination.name)
                 if installed is None:
                     continue
-                if member.get("preserve_existing") and str(member.get("target") or "").casefold() == "gzpro/binaries/win64/dwmapi.dll":
+                if member.get("preserve_existing") and _is_shared_ue4ss_runtime_file(member.get("target")):
                     # This file belongs to the pre-existing UE4SS installation.
                     continue
                 game_hash, game_size = _hash_file(installed)
