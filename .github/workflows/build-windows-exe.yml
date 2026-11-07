@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: gzpro-mod-manager-release
+  group: gzpro-mod-manager-release-v2
   cancel-in-progress: true
 
 permissions:
