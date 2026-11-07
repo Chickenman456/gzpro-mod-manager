@@ -8,20 +8,22 @@ A small, local-only Windows tool for safely staging pre-cooked `.pak` mods for *
 
 ## Run
 
-1. Install Python 3.10 or newer.
-2. Double-click `run.bat`, or run `.\run.bat` from PowerShell.
-3. Keep the terminal open while using the browser page. Press Ctrl+C in the terminal to stop it.
-4. If the game is installed elsewhere, either enter its install folder in the page or run:
+The project is open source under the MIT License. See [LICENSE](LICENSE).
+
+1. For normal use, download and double-click `GZProModManager.exe` from the [latest release](https://github.com/Chickenman456/gzpro-mod-manager/releases/latest). No terminal window or Python installation is required.
+2. If the game is installed elsewhere, enter its install folder in the app.
+
+To run from source for development, install Python 3.10 or newer and run `run.bat`.
 
    ```powershell
    .\run.bat --game-dir "D:\SteamLibrary\steamapps\common\Godzilla Destroy All Monsters Melee Remastered"
    ```
 
-The Windows executable opens in a frameless desktop window with custom Steam-style title bar and window controls (using WebView2 when available); if that runtime is unavailable, it falls back to the default browser. Its Windows executable icon is generated from `gzpicon.png`. The header's **Check for updates** button checks the latest stable GitHub release and can download, verify when a release digest is published, install, and restart the executable. The updater checks that the executable folder is writable before downloading, stages the replacement beside the executable, and logs any post-launch replacement error to `%LOCALAPPDATA%\\GZProModManager\\updates\\update-install.log`. Mod backups and settings remain in `%LOCALAPPDATA%\\GZProModManager` and are not replaced by an update.
+The Windows executable runs without opening a terminal and opens in a frameless, resizable desktop window with a custom Steam-style title bar and window controls (using WebView2 when available); if that runtime is unavailable, it falls back to the default browser. Its Windows executable icon is generated from `gzpicon.png`. The header's **Check for updates** button checks the latest stable GitHub release and can download, verify when a release digest is published, install, and restart the executable. The updater checks that the executable folder is writable before downloading, stages the replacement beside the executable, and logs any post-launch replacement error to `%LOCALAPPDATA%\\GZProModManager\\updates\\update-install.log`. Mod backups and settings remain in `%LOCALAPPDATA%\\GZProModManager` and are not replaced by an update.
 
 The launcher includes a **Changelog** tab that reads the latest commit history from this GitHub repository. An internet connection is required to load it.
 
-The manager binds only to `127.0.0.1` and asks Windows for an available local port by default. The packaged desktop version includes pywebview; running from source can use the browser fallback.
+The manager binds only to `127.0.0.1` and asks Windows for an available local port by default. The packaged desktop version includes pywebview; running from source can use the browser fallback. Managed mods can be enabled or disabled with the checkbox beside each mod; disabled mods appear faded.
 
 ## Mod package format (verified working)
 
