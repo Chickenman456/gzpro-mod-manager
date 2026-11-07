@@ -98,6 +98,32 @@ class ModManagerTests(unittest.TestCase):
         self.assertFalse((paks_mods / "HeiseiBurningSkin_P.ucas").exists())
         self.assertFalse((loader / "enabled.txt").exists())
 
+    def test_profiles_save_and_switch_enabled_mod_combinations(self) -> None:
+        first = self.install("First.zip")
+        second = self.install("Second.zip")
+        self.manager.set_mod_enabled(str(second["id"]), False)
+        profile_a = self.manager.save_profile("First setup")
+        self.assertEqual(profile_a["profiles"][0]["mod_ids"], [first["id"]])
+        self.manager.set_mod_enabled(str(first["id"]), False)
+        self.manager.set_mod_enabled(str(second["id"]), True)
+        profile_b = self.manager.save_profile("Second setup")
+        self.assertEqual(set(profile_b["profiles"][1]["mod_ids"]), {second["id"]})
+        applied = self.manager.apply_profile(profile_a["profiles"][0]["id"])
+        enabled = {mod["id"] for mod in applied["mods"] if mod["enabled"]}
+        self.assertEqual(enabled, {first["id"]})
+        self.assertEqual(applied["active_profile_id"], profile_a["profiles"][0]["id"])
+        self.assertTrue((self.manager.archive_dir / f"{first['id']}.zip").is_file())
+        self.assertTrue((self.manager.archive_dir / f"{second['id']}.zip").is_file())
+
+    def test_profiles_reject_duplicate_names_and_delete_without_changing_mods(self) -> None:
+        self.install()
+        saved = self.manager.save_profile("Default")
+        with self.assertRaises(ConflictError):
+            self.manager.save_profile("default")
+        self.manager.delete_profile(saved["profiles"][0]["id"])
+        self.assertTrue(self.deployed()[0].is_file())
+        self.assertTrue(self.manager.get_status()["mods"][0]["enabled"])
+
     def test_import_keeps_verified_backup_and_does_not_change_original_archives(self) -> None:
         original_bytes = self.original_archive.read_bytes()
         mod = self.install()
