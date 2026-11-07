@@ -118,14 +118,16 @@
 
     <section id="page-nexus" class="tab-page" role="tabpanel" aria-labelledby="tab-nexus" hidden>
       <section class="panel nexus-panel">
-        <div class="section-heading"><div><h2>Nexus Mods</h2><p class="muted">Browse community uploads for Godzilla: Destroy All Monsters Melee Remastered. Pages open in a separate browser window inside the manager.</p></div></div>
+        <div class="section-heading"><div><h2>Nexus Mods</h2><p class="muted">Browse uploads for Godzilla: Destroy All Monsters Melee Remastered without leaving the manager.</p></div></div>
         <form id="nexus-search-form" class="nexus-search"><label for="nexus-search">Search mods</label><input id="nexus-search" type="search" maxlength="100" placeholder="Search Nexus Mods"><button class="button button-primary" type="submit">Search</button></form>
-        <div class="nexus-shortcuts">
-          <button class="button button-secondary" type="button" data-nexus-path="/godzilladestroyallmonstersmeleeremastered/mods/">All mods</button>
-          <button class="button button-secondary" type="button" data-nexus-path="/godzilladestroyallmonstersmeleeremastered/mods/newrecently">Recently added</button>
-          <button class="button button-secondary" type="button" data-nexus-path="/godzilladestroyallmonstersmeleeremastered/mods/top">Top mods</button>
+        <div class="nexus-toolbar" role="group" aria-label="Nexus mod list">
+          <button class="button button-secondary active" type="button" data-nexus-sort="popular">Popular</button>
+          <button class="button button-secondary" type="button" data-nexus-sort="recent">Recently added</button>
+          <button class="button button-secondary" type="button" data-nexus-sort="updated">Recently updated</button>
         </div>
-        <p class="muted">Downloads follow Nexus Mods account, permissions, and download rules. Import compatible downloaded ZIP packages from the Mods tab.</p>
+        <p id="nexus-status" class="nexus-status muted" role="status">Choose a list or search Nexus Mods.</p>
+        <div id="nexus-results" class="nexus-results"></div>
+        <p class="muted">Select a mod to open its Nexus page. Downloads remain subject to Nexus Mods account and site rules. Import compatible ZIP packages from the Mods tab.</p>
       </section>
     </section>
     <section id="page-changelog" class="tab-page" role="tabpanel" aria-labelledby="tab-changelog" hidden>
