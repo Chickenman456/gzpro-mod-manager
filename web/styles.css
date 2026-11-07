@@ -154,3 +154,15 @@ footer strong { color: #cbd2df; }
 .update-panel p { margin: .3rem 0 0; }
 .update-panel a { color: #76c9f4; white-space: nowrap; }
 @media (max-width: 650px) { .update-panel { align-items: flex-start; flex-direction: column; } }
+
+
+/* Frameless desktop window: Steam-style custom title bar and native controls. */
+.desktop-titlebar { height: 38px; display: flex; align-items: stretch; justify-content: space-between; background: #171a21; border-bottom: 1px solid #303644; color: #dce2ed; user-select: none; }
+.desktop-titlebar[hidden] { display: none; }
+.desktop-drag-region { display: flex; flex: 1; align-items: center; gap: .55rem; padding-left: .75rem; font-size: .82rem; font-weight: 700; letter-spacing: .02em; }
+.titlebar-logo { width: 22px; height: 22px; object-fit: contain; }
+.window-controls { display: flex; height: 38px; }
+.window-controls button { width: 46px; border: 0; border-radius: 0; background: transparent; color: #c8d0dd; font: 500 17px "Segoe UI", sans-serif; cursor: pointer; }
+.window-controls button:hover { background: #343b49; }
+.window-controls #window-close:hover { background: #c42b3a; color: white; }
+body:has(.desktop-titlebar:not([hidden])) .topbar { padding-top: 1rem; }
