@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  font-family: "Barlow Condensed", "Segoe UI", sans-serif;
+  font-family: "Noto Sans", "Noto Sans JP", sans-serif;
   background: #13191b;
   color: #eef0f6;
   font-synthesis: none;
@@ -188,3 +188,12 @@ body:has(.desktop-titlebar:not([hidden])) { min-height: 100vh; border: 1px solid
 .mod-card-disabled .mod-info, .mod-card-disabled .mod-thumbnail { opacity: .42; filter: grayscale(.55); }
 .mod-card-disabled .mod-actions { opacity: .65; }
 @media (max-width: 650px) { .mod-toggle { align-self: flex-start; } }
+
+/* Godzilla Remastered font lineup */
+.product-subtitle { margin: .35rem 0 0; color: #b7c1d2; font: 600 .78rem "Saira Extra Condensed", sans-serif; letter-spacing: .07em; text-transform: uppercase; }
+h2 { font-family: "Fjalla One", "Anton", sans-serif; }
+h3 { font-family: "Special Gothic Expanded One", "Anton", sans-serif; }
+.version-label { font-family: "Fugaz One", sans-serif; }
+.mod-info, .mod-description, .notice p, .package-guide, .path-form, .empty-state { font-family: "Noto Sans", "Noto Sans JP", sans-serif; }
+.button, .tab-button, .local-badge, .eyebrow { font-family: "Saira Extra Condensed", "Barlow Condensed", sans-serif; }
+:lang(ja), [lang="ja"] { font-family: "Noto Sans JP", "Noto Sans", sans-serif; }
