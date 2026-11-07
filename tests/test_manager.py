@@ -204,6 +204,23 @@ class ModManagerTests(unittest.TestCase):
         self.assertTrue((binaries / "dwmapi.dll").is_file())
         self.assertTrue((ue4ss / "UE4SS.dll").is_file())
 
+    def test_character_package_refuses_different_existing_ue4ss_dll(self) -> None:
+        binaries = self.game_dir / "GZPro" / "Binaries" / "Win64"
+        binaries.mkdir(parents=True)
+        existing = binaries / "dwmapi.dll"
+        existing.write_bytes(b"a different proxy DLL")
+        payload = make_package({
+            "GZPro/Binaries/Win64/dwmapi.dll": b"mod proxy DLL",
+            "GZPro/Binaries/Win64/ue4ss/UE4SS.dll": b"UE4SS core",
+            "GZPro/Binaries/Win64/ue4ss/Mods/CharacterPack/enabled.txt": b"",
+            "GZPro/Binaries/Win64/ue4ss/Mods/CharacterPack/Scripts/main.lua": b"print('character mod')",
+        })
+        with self.assertRaises(ConflictError):
+            self.install("CharacterPack.zip", payload, kind="override")
+        self.assertEqual(existing.read_bytes(), b"a different proxy DLL")
+        self.assertFalse((binaries / "ue4ss" / "UE4SS.dll").exists())
+        self.assertEqual(list(self.manager.archive_dir.glob("*.zip")), [])
+
     def test_ue4ss_only_package_uses_mod_folder_name(self) -> None:
         payload = make_package({
             "GZPro/Binaries/Win64/dwmapi.dll": b"proxy loader",
