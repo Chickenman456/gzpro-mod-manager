@@ -750,7 +750,11 @@ class ModManager:
                     folder is not None or entry.casefold().startswith("gzpro/content/paks/~mods/")
                     for _, entry, folder in skin_infos
                 )
-                skin_stem = None
+                utoc_entry = next(
+                    (entry for _, entry, _ in skin_infos if Path(entry).suffix.casefold() == ".utoc"),
+                    None,
+                )
+                skin_stem = _safe_mod_stem(Path(utoc_entry).stem) if utoc_entry else None
                 skin_folder = None
                 suffixes: set[str] = set()
                 members: list[dict[str, object]] = []
@@ -785,7 +789,7 @@ class ModManager:
                             skin_folder = folder
                         elif folder.casefold() != skin_folder.casefold():
                             raise ManagerError("The skin container files must be in the same mod folder.")
-                    if skin_stem is None or suffix == ".utoc":
+                    if skin_stem is None:
                         skin_stem = current_stem
 
                     if suffix in suffixes:
