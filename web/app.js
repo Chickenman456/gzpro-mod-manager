@@ -281,10 +281,40 @@ function renderStatus(status) {
 }
 
 async function refreshStatus() {
+  const indicator = byId("status-checking");
+  const stage = byId("status-check-stage");
+  const elapsed = byId("status-check-elapsed");
+  const startedAt = performance.now();
+  let polling = false;
+  indicator.hidden = false;
+  stage.textContent = "Starting game and mod checks…";
+  elapsed.textContent = "0s";
+
+  const updateProgress = async () => {
+    if (polling) return;
+    polling = true;
+    try {
+      const progress = await requestJson("/api/status/progress");
+      if (progress.stage) stage.textContent = progress.stage;
+    } catch (_) {
+      // The main status request remains authoritative if progress polling fails.
+    } finally {
+      polling = false;
+      elapsed.textContent = `${Math.floor((performance.now() - startedAt) / 1000)}s`;
+    }
+  };
+
+  await updateProgress();
+  const progressTimer = setInterval(updateProgress, 500);
   try {
     renderStatus(await requestJson("/api/status"));
   } catch (error) {
     setMessage(`Could not read manager status: ${error.message}`, true);
+    stage.textContent = "Status check failed";
+  } finally {
+    clearInterval(progressTimer);
+    elapsed.textContent = `${Math.floor((performance.now() - startedAt) / 1000)}s`;
+    indicator.hidden = true;
   }
 }
 
