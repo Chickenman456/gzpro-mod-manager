@@ -171,13 +171,13 @@ function renderStatus(status) {
   } else {
     modsElement.innerHTML = status.mods.map((mod) => {
       const stateLabel = mod.conflict ? "File changed outside the manager" : (mod.enabled ? "Enabled" : "Disabled");
-      const actionLabel = mod.enabled ? "Disable" : "Enable";
       const disabled = state.busy || !status.game_valid || status.game_running || status.game_check_error || mod.conflict || !mod.backup_available;
       const deleteDisabled = state.busy || !status.game_valid || status.game_running || status.game_check_error || !mod.backup_available;
       const kindLabel = mod.kind === "blueprint" ? "Blueprint · LogicMods" : "Asset override · Paks";
       const thumbnail = mod.thumbnail ? `<img class="mod-thumbnail" src="${escapeHtml(mod.thumbnail)}" alt="${escapeHtml(mod.stem || "Mod")} thumbnail">` : "";
       const description = mod.description ? `<p class="mod-description">${escapeHtml(mod.description)}</p>` : "";
-      return `<article class="mod-card">
+      return `<article class="mod-card ${mod.enabled ? "" : "mod-card-disabled"}">
+        <label class="mod-toggle" title="${mod.enabled ? "Disable" : "Enable"} ${escapeHtml(mod.stem || mod.filename)}"><input type="checkbox" data-mod-toggle="${escapeHtml(mod.id)}" ${mod.enabled ? "checked" : ""} ${disabled ? "disabled" : ""} aria-label="${mod.enabled ? "Disable" : "Enable"} ${escapeHtml(mod.stem || mod.filename)}"><span class="mod-toggle-mark" aria-hidden="true"></span></label>
         ${thumbnail}
         <div class="mod-info">
           <strong>${escapeHtml(mod.stem || mod.filename)}</strong>
@@ -186,13 +186,12 @@ function renderStatus(status) {
           <small>SHA-256 ${escapeHtml(mod.sha256.slice(0, 16))}… · backup ${mod.backup_available ? "available" : "missing"}</small>
         </div>
         <div class="mod-actions">
-          <button class="button ${mod.enabled ? "button-secondary" : "button-primary"}" data-mod-id="${escapeHtml(mod.id)}" data-next-state="${mod.enabled ? "disable" : "enable"}" ${disabled ? "disabled" : ""}>${actionLabel}</button>
           <button class="button button-danger" data-delete-mod="${escapeHtml(mod.id)}" ${deleteDisabled ? "disabled" : ""}>Delete</button>
         </div>
       </article>`;
     }).join("");
-    modsElement.querySelectorAll("button[data-mod-id]").forEach((button) => {
-      button.addEventListener("click", () => changeModState(button.dataset.modId, button.dataset.nextState));
+    modsElement.querySelectorAll("input[data-mod-toggle]").forEach((checkbox) => {
+      checkbox.addEventListener("change", () => changeModState(checkbox.dataset.modToggle, checkbox.checked ? "enable" : "disable"));
     });
     modsElement.querySelectorAll("button[data-delete-mod]").forEach((button) => {
       button.addEventListener("click", () => deleteManagedMod(button.dataset.deleteMod));
@@ -340,7 +339,6 @@ async function deleteManagedMod(modId) {
 async function changeModState(modId, action) {
   if (!modId || !["enable", "disable"].includes(action)) return;
   const verb = action === "disable" ? "disable" : "enable";
-  if (!window.confirm(`Close the game, then ${verb} this mod? The manager will not overwrite another file.`)) return;
   state.busy = true;
   setMessage(`${verb === "disable" ? "Disabling" : "Enabling"} mod…`);
   renderStatus(state.status);
