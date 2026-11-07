@@ -206,7 +206,7 @@ class ModManagerTests(unittest.TestCase):
 
     def test_character_package_refuses_different_existing_ue4ss_dll(self) -> None:
         binaries = self.game_dir / "GZPro" / "Binaries" / "Win64"
-        binaries.mkdir(parents=True)
+        binaries.mkdir(parents=True, exist_ok=True)
         existing = binaries / "dwmapi.dll"
         existing.write_bytes(b"a different proxy DLL")
         payload = make_package({
