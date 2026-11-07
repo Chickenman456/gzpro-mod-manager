@@ -219,3 +219,7 @@ h2, h3 { font-family: "Fjalla One", "Barlow Condensed", sans-serif; }
 .topbar { background: rgba(8, 13, 20, .94); border-bottom-color:#3b4149; }
 .notice h2 { color:#e8a044; }
 @media (max-width:650px) { .button-launch { width:100%; } }
+
+.mod-title-button { display:inline; width:fit-content; max-width:100%; padding:0; border:0; background:transparent; color:#f2eee5; font:600 1.12rem "Barlow Condensed","Arial Narrow",sans-serif; text-align:left; cursor:pointer; overflow-wrap:anywhere; }
+.mod-title-button:hover { color:#e7a044; text-decoration:underline; text-decoration-color:#9a652b; text-underline-offset:3px; }
+.mod-title-button:focus-visible { outline:1px solid #e7a044; outline-offset:3px; }
