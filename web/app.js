@@ -288,7 +288,7 @@ async function refreshStatus() {
   }
 }
 
-function uploadFile(file, kind, replaceModId = null, skipUnsupported = false) {
+function uploadFile(file, kind, replaceModId = null, skipUnsupported = false, installDlls = false) {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", "/api/mods");
@@ -297,6 +297,7 @@ function uploadFile(file, kind, replaceModId = null, skipUnsupported = false) {
     request.setRequestHeader("X-Mod-Kind", kind);
     if (replaceModId) request.setRequestHeader("X-Replace-Mod-Id", replaceModId);
     if (skipUnsupported) request.setRequestHeader("X-Skip-Unsupported", "true");
+    if (installDlls) request.setRequestHeader("X-Install-Dll-Anyway", "true");
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         byId("upload-progress").value = Math.round((event.loaded / event.total) * 100);
@@ -345,22 +346,40 @@ async function importFile(file) {
   renderStatus(state.status);
   try {
     let mod;
-    try { mod = await uploadFile(file, kind); }
-    catch (error) {
-      if (/^Unsupported file or folder in the package: /i.test(error.message)) {
-        const skip = window.confirm(
-          error.message + "\n\nSkip unsupported files and folders and try importing the supported mod files? Unknown files will NOT be installed. Only continue if you trust this ZIP."
-        );
-        if (!skip) throw error;
-        mod = await uploadFile(file, kind, null, true);
-      } else if (error.replaceModId) {
-        const replace = window.confirm("A mod named \"" + error.replaceStem + "\" is already in your library. Replace its installed version with this ZIP? The existing mod and profile references will be kept. If replacement fails, the previous version will be restored.");
-        if (!replace) { setMessage("Existing mod was left unchanged."); return; }
-        mod = await uploadFile(file, kind, error.replaceModId);
-      } else {
+    const uploadOptions = { replaceModId: null, skipUnsupported: false, installDlls: false };
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        mod = await uploadFile(file, kind, uploadOptions.replaceModId, uploadOptions.skipUnsupported, uploadOptions.installDlls);
+        break;
+      } catch (error) {
+        const dllMatch = /^DLL_INSTALL_CONFIRM_REQUIRED:(.+)$/i.exec(error.message);
+        if (dllMatch && !uploadOptions.installDlls) {
+          const runAnyway = window.confirm(
+            "This ZIP contains an unrecognized DLL: " + dllMatch[1] +
+            "\n\nInstall it anyway in GZPro\\Binaries\\Win64 so the game can load it on the next launch? DLLs can execute code inside the game. Only continue if you trust the mod source. Existing files will never be overwritten."
+          );
+          if (!runAnyway) throw new Error("DLL was not installed.");
+          uploadOptions.installDlls = true;
+          continue;
+        }
+        if (/^Unsupported file or folder in the package: /i.test(error.message) && !uploadOptions.skipUnsupported) {
+          const skip = window.confirm(
+            error.message + "\n\nSkip the remaining unsupported files and folders? They will NOT be installed. Only continue if you trust this ZIP."
+          );
+          if (!skip) throw error;
+          uploadOptions.skipUnsupported = true;
+          continue;
+        }
+        if (error.replaceModId && !uploadOptions.replaceModId) {
+          const replace = window.confirm("A mod named \"" + error.replaceStem + "\" is already in your library. Replace its installed version with this ZIP? The existing mod and profile references will be kept. If replacement fails, the previous version will be restored.");
+          if (!replace) { setMessage("Existing mod was left unchanged."); return; }
+          uploadOptions.replaceModId = error.replaceModId;
+          continue;
+        }
         throw error;
       }
     }
+    if (!mod) throw new Error("Import could not be completed after the confirmation steps.");
     const note = mod.requires_ue4ss
       ? "UE4SS files were included or detected. The mod will load the next time the game starts."
       : (mod.kind === "blueprint"
