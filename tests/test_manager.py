@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from manager import ConflictError, ManagerError, ModManager, create_server
+from manager import ConflictError, ManagerError, ModManager, _run_check_with_timeout, create_server
 
 
 def make_package(members: dict[str, bytes]) -> bytes:
@@ -533,6 +533,12 @@ class ModManagerTests(unittest.TestCase):
         self.assertEqual(installed.read_bytes(), b"changed by another tool")
         self.assertTrue((self.paks_dir / "LogicMods" / "TestMod.utoc").is_file())
         self.assertTrue((self.manager.archive_dir / f"{mod['id']}.zip").is_file())
+
+    def test_status_path_check_times_out_instead_of_blocking_forever(self) -> None:
+        never_finishes = threading.Event()
+        valid, error = _run_check_with_timeout(lambda: never_finishes.wait(0.2), timeout=0.01)
+        self.assertFalse(valid)
+        self.assertIn("Timed out", error or "")
 
     def test_lists_existing_unmanaged_mods_without_managing_them(self) -> None:
         logic_mods = self.paks_dir / "LogicMods"
