@@ -1,4 +1,5 @@
 # Build from master so fixes made after the workflow commit are included.
+# pywebview and its Windows runtime dependencies are bundled for the dedicated app window.
 name: Build Windows executable
 
 on:
