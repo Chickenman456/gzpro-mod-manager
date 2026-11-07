@@ -64,16 +64,12 @@ python -m unittest discover -s tests
 ```
 
 
-### Mod profiles (v1.9.2)
+### Mod profiles (v1.9.3)
 
 Save the current enabled-mod combination as a named profile, then apply it later to enable those mods and disable other managed mods. Deleting a profile does not delete any mods. Applying a profile requires the game to be closed; all mod backups are retained. Manually changing a mod clears the active-profile indicator until a profile is applied or saved again.
 
 
-### Nexus Mods browser (v1.9.2)
 
-The Browse Mods tab opens game-specific Nexus Mods pages in a separate browser window managed by the app. Search and browsing use Nexus Mods directly; downloads remain subject to Nexus account and site rules. Import compatible downloaded ZIP packages from the Mods tab.
+### Game launch button (v1.9.3)
 
-
-### In-app Nexus mod listings (v1.9.2)
-
-The Browse Mods tab loads public game-specific Nexus Mods listings for popular, recent, updated, and search results. Mod cards link to the original Nexus pages. Listing availability depends on Nexus Mods responding to the manager's request.
+The Game Install panel includes a Launch Game button. It starts the configured game executable as a detached Windows process and is disabled if the game is already running or the install is invalid.
