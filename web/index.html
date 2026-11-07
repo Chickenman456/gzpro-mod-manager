@@ -17,7 +17,7 @@
       <p class="product-subtitle">Unofficial Mod Manager for Godzilla: Destroy All Monsters Melee Remastered</p>
     </div>
     <div class="header-meta">
-      <span class="version-label">v1.10.1 · 2026-11-08</span>
+      <span class="version-label">v1.11.0 · 2026-11-08</span>
       <button id="check-updates" class="button button-secondary" type="button">Check for updates</button>
       <a class="icon-button report-bug" href="https://github.com/Chickenman456/gzpro-mod-manager/issues/new" target="_blank" rel="noopener noreferrer" aria-label="Report a bug" title="Report a bug"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20v-9"/><path d="M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z"/><path d="M14.12 3.88 16 2"/><path d="M21 21a4 4 0 0 0-3.81-4"/><path d="M21 5a4 4 0 0 1-3.55 3.97"/><path d="M22 13h-4"/><path d="M3 21a4 4 0 0 1 3.81-4"/><path d="M3 5a4 4 0 0 0 3.55 3.97"/><path d="M6 13H2"/><path d="m8 2 1.88 1.88"/><path d="M9 7.13V6a3 3 0 1 1 6 0v1.13"/></svg></a>
       <span class="local-badge">Local only</span>
@@ -57,6 +57,7 @@
     <nav class="tab-bar" role="tablist" aria-label="Manager pages">
       <button class="tab-button active" id="tab-mods" type="button" role="tab" aria-selected="true" aria-controls="page-mods">Mods</button>
       <button class="tab-button" id="tab-changelog" type="button" role="tab" aria-selected="false" aria-controls="page-changelog">Changelog</button>
+      <button class="tab-button" id="tab-troubleshooting" type="button" role="tab" aria-selected="false" aria-controls="page-troubleshooting">Troubleshooting</button>
     </nav>
 
     <section id="page-mods" class="tab-page active" role="tabpanel" aria-labelledby="tab-mods">
@@ -107,16 +108,38 @@
       <label id="drop-zone" class="drop-zone" for="mod-file">
         <input id="mod-file" type="file" accept=".zip,application/zip">
         <span class="drop-icon" aria-hidden="true">↓</span>
-        <strong>Drop a cooked mod .zip</strong>
+        <strong>Drop a mod .zip anywhere in this window</strong>
         <span>or click to choose one</span>
-        <small>The zip can hold a standard cooked .utoc + .ucas package or a combined skin package with GZSkinLoader scripts. Raw WAV and loose .uasset files must be cooked into a mod first.</small>
+        <small>Supports cooked .utoc/.ucas mods, combined skin-loader packages, and game-root UE4SS packages containing dwmapi.dll and a ue4ss folder. Raw WAV and loose .uasset files must be cooked first.</small>
       </label>
       <progress id="upload-progress" max="100" value="0" hidden></progress>
       <p id="action-message" class="message" role="status"></p>
+      <section id="error-help" class="error-help" aria-live="polite" hidden>
+        <div><strong>Why this happened</strong><p id="error-cause"></p></div>
+        <div><strong>What to do</strong><p id="error-fix"></p></div>
+        <button id="copy-error" class="button button-secondary" type="button">Copy error details</button>
+      </section>
       <div id="mods" class="mod-list"></div>
       <div id="unmanaged" class="unmanaged-list"></div>
     </section>
 
+    </section>
+
+    <section id="page-troubleshooting" class="tab-page" role="tabpanel" aria-labelledby="tab-troubleshooting" hidden>
+      <section class="panel" aria-labelledby="troubleshooting-title">
+        <div class="section-heading"><div><h2 id="troubleshooting-title">Troubleshooting</h2><p class="muted">Common problems, what causes them, and the safest fix.</p></div></div>
+        <div class="troubleshooting-list">
+          <article class="troubleshooting-item"><h3>Unsupported file or folder in the package</h3><p><strong>Cause:</strong> The ZIP has a folder layout or file type the manager does not recognize.</p><p><strong>Fix:</strong> Keep the mod's original folder structure. UE4SS packages can include <code>GZPro/Binaries/Win64/dwmapi.dll</code> and files inside <code>GZPro/Binaries/Win64/ue4ss/</code>.</p></article>
+          <article class="troubleshooting-item"><h3>Character or skin does not appear</h3><p><strong>Cause:</strong> UE4SS did not load, the game is using an incompatible loader build, or the mod's script did not register.</p><p><strong>Fix:</strong> This game uses Unreal Engine 5.8 and needs the compatible experimental UE4SS build. Check for <code>dwmapi.dll</code> and <code>ue4ss/UE4SS.dll</code> beside the game executable. Check <code>ue4ss/UE4SS.log</code> for the mod name or an error.</p></article>
+          <article class="troubleshooting-item"><h3>dwmapi.dll already exists</h3><p><strong>Cause:</strong> Another UE4SS installation or mod already uses the Windows DLL loader slot.</p><p><strong>Fix:</strong> Do not overwrite it blindly. Compare the installed UE4SS version with the one required by the mod. One game installation can only use one <code>dwmapi.dll</code> at a time.</p></article>
+          <article class="troubleshooting-item"><h3>The package is missing .utoc or .ucas</h3><p><strong>Cause:</strong> A cooked IoStore mod is missing one of its required container files.</p><p><strong>Fix:</strong> Download the complete mod archive. The matching <code>.utoc</code> and <code>.ucas</code> files are required; a companion <code>.pak</code> is optional.</p></article>
+          <article class="troubleshooting-item"><h3>The game is running</h3><p><strong>Cause:</strong> The game may have files open, so changing them could corrupt an installation.</p><p><strong>Fix:</strong> Exit the game completely before importing, enabling, disabling, replacing, or deleting mods.</p></article>
+          <article class="troubleshooting-item"><h3>Windows says access is denied</h3><p><strong>Cause:</strong> Windows permissions or another program is blocking the file operation.</p><p><strong>Fix:</strong> Close the game and other mod tools. Make sure the game folder and <code>%LOCALAPPDATA%\GZProModManager</code> are writable.</p></article>
+          <article class="troubleshooting-item"><h3>The game crashes after installing UE4SS</h3><p><strong>Cause:</strong> UE4SS may be the wrong build for this game version, or a mod may be incompatible.</p><p><strong>Fix:</strong> Disable the affected mod. If the game still crashes, temporarily remove or rename <code>dwmapi.dll</code> to disable UE4SS, then check the UE4SS log and mod requirements.</p></article>
+          <article class="troubleshooting-item"><h3>Mod replacement or deletion is blocked</h3><p><strong>Cause:</strong> A game file no longer matches the manager's verified copy, or its backup is missing.</p><p><strong>Fix:</strong> The manager leaves changed files untouched to avoid deleting someone else's work. Do not force-delete them; copy the exact error details and report the issue.</p></article>
+        </div>
+        <p class="muted">If the listed fix does not solve it, use <strong>Copy error details</strong> beneath the error and include them when you <a href="https://github.com/Chickenman456/gzpro-mod-manager/issues/new" target="_blank" rel="noopener noreferrer">report a bug</a>.</p>
+      </section>
     </section>
 
     <section id="page-changelog" class="tab-page" role="tabpanel" aria-labelledby="tab-changelog" hidden>
@@ -136,5 +159,6 @@
       <p>It never edits the game's original <code>.pak</code>, <code>.utoc</code>, or <code>.ucas</code> archives. Blueprint mod loading is handled by UE4SS's BPModLoaderMod, which must be installed separately. Asset override mods do not require UE4SS. A raw WAV must first be cooked into an IoStore mod package.</p>
     </footer>
   </main>
+  <div class="drag-overlay" aria-hidden="true">DROP MOD ZIP TO IMPORT</div>
 </body>
 </html>
