@@ -1445,30 +1445,63 @@ class DesktopWindowApi:
     def __init__(self) -> None:
         self.window = None
         self._maximized = False
+        self._wndproc_callback = None
 
     def enable_resize(self) -> None:
-        """Restore native Windows resize hit targets on the frameless window."""
-        if not self.window or sys.platform != "win32":
+        """Add Windows hit testing so the custom title bar can move and resize."""
+        if not self.window or sys.platform != "win32" or self._wndproc_callback:
             return
         try:
-            handle = self.window.native.Handle
-            hwnd = int(handle.ToInt64()) if hasattr(handle, "ToInt64") else int(handle)
             user32 = ctypes.windll.user32
-            get_style = user32.GetWindowLongPtrW
-            get_style.argtypes = [ctypes.c_void_p, ctypes.c_int]
-            get_style.restype = ctypes.c_ssize_t
-            set_style = user32.SetWindowLongPtrW
-            set_style.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
-            set_style.restype = ctypes.c_ssize_t
-            set_pos = user32.SetWindowPos
-            set_pos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint]
-            set_pos.restype = ctypes.c_int
-            style = get_style(hwnd, -16)
-            style |= 0x00040000 | 0x00020000 | 0x00010000 | 0x00080000
-            set_style(hwnd, -16, style)
-            set_pos(hwnd, None, 0, 0, 0, 0, 0x0037)
+            raw_handle = self.window.native.Handle
+            hwnd = int(raw_handle.ToInt64()) if hasattr(raw_handle, "ToInt64") else int(raw_handle)
+            get_long = user32.GetWindowLongPtrW
+            get_long.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            get_long.restype = ctypes.c_ssize_t
+            set_long = user32.SetWindowLongPtrW
+            set_long.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
+            set_long.restype = ctypes.c_ssize_t
+            call_proc = user32.CallWindowProcW
+            call_proc.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t]
+            call_proc.restype = ctypes.c_ssize_t
+            get_rect = user32.GetWindowRect
+            get_rect.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            get_rect.restype = ctypes.c_int
+
+            class RECT(ctypes.Structure):
+                _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+            old_proc = get_long(hwnd, -4)
+            edge = 8
+            WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t)
+
+            def wndproc(window_handle, message, wparam, lparam):
+                if message == 0x0084:
+                    rect = RECT()
+                    if get_rect(window_handle, ctypes.byref(rect)):
+                        packed = ctypes.c_uint32(lparam).value
+                        x = ctypes.c_short(packed & 0xFFFF).value
+                        y = ctypes.c_short((packed >> 16) & 0xFFFF).value
+                        left, top, right, bottom = rect.left, rect.top, rect.right, rect.bottom
+                        if not self._maximized:
+                            at_left, at_right = x < left + edge, x >= right - edge
+                            at_top, at_bottom = y < top + edge, y >= bottom - edge
+                            if at_top and at_left: return 13
+                            if at_top and at_right: return 14
+                            if at_bottom and at_left: return 16
+                            if at_bottom and at_right: return 17
+                            if at_left: return 10
+                            if at_right: return 11
+                            if at_top: return 12
+                            if at_bottom: return 15
+                        if top <= y < top + 38 and x < right - 138:
+                            return 2
+                return call_proc(old_proc, window_handle, message, wparam, lparam)
+
+            self._wndproc_callback = WNDPROC(wndproc)
+            set_long(hwnd, -4, ctypes.cast(self._wndproc_callback, ctypes.c_void_p).value)
         except Exception:
-            pass
+            self._wndproc_callback = None
 
     def minimize(self) -> None:
         if self.window:
