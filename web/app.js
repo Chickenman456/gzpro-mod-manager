@@ -1,4 +1,12 @@
 const state = { status: null, busy: false, changelogLoaded: false };
+
+window.addEventListener("pywebviewready", () => {
+  const bar = byId("desktop-titlebar");
+  bar.hidden = false;
+  byId("window-minimize").addEventListener("click", () => window.pywebview.api.minimize());
+  byId("window-maximize").addEventListener("click", () => window.pywebview.api.toggle_maximize());
+  byId("window-close").addEventListener("click", () => window.pywebview.api.close());
+});
 const byId = (id) => document.getElementById(id);
 
  
