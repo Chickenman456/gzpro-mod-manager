@@ -13,7 +13,7 @@
 <body>
   <div id="desktop-titlebar" class="desktop-titlebar" hidden>
     <div class="desktop-drag-region" data-pywebview-drag-region>
-      <img src="/gzprologo.png" alt="" class="titlebar-logo" data-pywebview-drag-region>
+      <img src="/gzpicon.png" alt="" class="titlebar-logo" data-pywebview-drag-region>
       <span data-pywebview-drag-region>GZPro Mod Manager</span>
     </div>
     <div class="window-controls">
@@ -27,7 +27,7 @@
       <img class="brand-logo" src="/gzprologo.png" alt="GZPro Mod Manager">
     </div>
     <div class="header-meta">
-      <span class="version-label">v1.6.0 · 2026-11-07</span>
+      <span class="version-label">v1.6.1 · 2026-11-07</span>
       <button id="check-updates" class="button button-secondary" type="button">Check for updates</button>
       <a class="button button-secondary report-bug" href="https://github.com/Chickenman456/gzpro-mod-manager/issues/new" target="_blank" rel="noopener noreferrer">Report a bug</a>
       <span class="local-badge">Local only</span>
@@ -36,7 +36,7 @@
 
   <main>
     <section id="update-panel" class="update-panel" aria-live="polite" hidden>
-      <div><strong id="update-title">Checking for updates…</strong><p id="update-details" class="muted"></p></div>
+      <div class="update-status"><span id="update-spinner" class="update-spinner" role="status" aria-label="Working" hidden></span><div><strong id="update-title">Checking for updates…</strong><p id="update-details" class="muted"></p></div></div>
       <button id="install-update" class="button button-primary" type="button" hidden>Download and install</button>
       <a id="release-link" href="https://github.com/Chickenman456/gzpro-mod-manager/releases" target="_blank" rel="noopener noreferrer">Release details</a>
     </section>
