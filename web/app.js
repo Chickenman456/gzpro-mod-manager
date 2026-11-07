@@ -1,24 +1,16 @@
 const state = { status: null, busy: false, changelogLoaded: false };
 
-window.addEventListener("pywebviewready", () => {
-  const bar = byId("desktop-titlebar");
-  bar.hidden = false;
-  byId("window-minimize").addEventListener("click", () => window.pywebview.api.minimize());
-  byId("window-maximize").addEventListener("click", () => window.pywebview.api.toggle_maximize());
-  byId("window-close").addEventListener("click", () => window.pywebview.api.close());
-});
 const byId = (id) => document.getElementById(id);
 
  
 function selectTab(name) {
-  const modsActive = name === "mods";
-  byId("tab-mods").classList.toggle("active", modsActive);
-  byId("tab-changelog").classList.toggle("active", !modsActive);
-  byId("tab-mods").setAttribute("aria-selected", String(modsActive));
-  byId("tab-changelog").setAttribute("aria-selected", String(!modsActive));
-  byId("page-mods").hidden = !modsActive;
-  byId("page-changelog").hidden = modsActive;
-  if (!modsActive && !state.changelogLoaded) loadChangelog();
+  for (const page of ["mods", "changelog", "nexus"]) {
+    const active = name === page;
+    byId("tab-" + page).classList.toggle("active", active);
+    byId("tab-" + page).setAttribute("aria-selected", String(active));
+    byId("page-" + page).hidden = !active;
+  }
+  if (name === "changelog" && !state.changelogLoaded) loadChangelog();
 }
 
 function formatCommitDate(value) {
@@ -411,6 +403,17 @@ byId("check-updates").addEventListener("click", checkForUpdates);
 byId("install-update").addEventListener("click", installUpdate);
 byId("tab-mods").addEventListener("click", () => selectTab("mods"));
 byId("tab-changelog").addEventListener("click", () => selectTab("changelog"));
+byId("tab-nexus").addEventListener("click", () => selectTab("nexus"));
+byId("nexus-search-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const query = byId("nexus-search").value.trim();
+  if (!query) return;
+  const url = "https://www.nexusmods.com/godzilladestroyallmonstersmeleeremastered/mods/search/?gsearch=" + encodeURIComponent(query);
+  window.pywebview?.api?.open_nexus(url);
+});
+document.querySelectorAll("[data-nexus-path]").forEach((button) => button.addEventListener("click", () => {
+  window.pywebview?.api?.open_nexus("https://www.nexusmods.com" + button.dataset.nexusPath);
+}));
 byId("refresh-changelog").addEventListener("click", loadChangelog);
 
 byId("mod-file").addEventListener("change", (event) => importFile(event.target.files[0]));
