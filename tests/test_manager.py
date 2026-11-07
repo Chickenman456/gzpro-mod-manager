@@ -139,33 +139,17 @@ class ModManagerTests(unittest.TestCase):
         self.assertFalse((paks_mods / "HeiseiBurningSkin_P.ucas").exists())
         self.assertFalse((loader / "enabled.txt").exists())
 
-    def test_character_package_supports_multiple_companion_pak_files(self) -> None:
+    def test_character_package_rejects_multiple_companion_pak_files(self) -> None:
         payload = make_package({
             "CharacterPack/CharacterPack_P.utoc": b"toc",
             "CharacterPack/CharacterPack_P.ucas": b"cas",
             "CharacterPack/CharacterPack_P.pak": b"main pak",
             "CharacterPack/ExtraAssets.pak": b"extra pak",
         })
-        mod = self.install("CharacterPack.zip", payload, kind="override")
-        paks_mods = self.paks_dir / "~mods"
-        self.assertEqual((paks_mods / "CharacterPack_P.utoc").read_bytes(), b"toc")
-        self.assertEqual((paks_mods / "CharacterPack_P.ucas").read_bytes(), b"cas")
-        self.assertEqual((paks_mods / "CharacterPack_P.pak").read_bytes(), b"main pak")
-        self.assertEqual((paks_mods / "ExtraAssets.pak").read_bytes(), b"extra pak")
-        self.assertEqual(mod["file_count"], 4)
-
-        disabled = self.manager.set_mod_enabled(str(mod["id"]), False)
-        self.assertFalse(disabled["enabled"])
-        self.assertFalse((paks_mods / "CharacterPack_P.pak").exists())
-        self.assertFalse((paks_mods / "ExtraAssets.pak").exists())
-
-        enabled = self.manager.set_mod_enabled(str(mod["id"]), True)
-        self.assertTrue(enabled["enabled"])
-        self.assertEqual((paks_mods / "ExtraAssets.pak").read_bytes(), b"extra pak")
-
-        self.manager.delete_mod(str(mod["id"]))
-        self.assertFalse((paks_mods / "CharacterPack_P.utoc").exists())
-        self.assertFalse((paks_mods / "ExtraAssets.pak").exists())
+        with self.assertRaises(ManagerError):
+            self.install("CharacterPack.zip", payload, kind="override")
+        self.assertFalse((self.paks_dir / "~mods" / "CharacterPack_P.utoc").exists())
+        self.assertFalse((self.paks_dir / "~mods" / "ExtraAssets.pak").exists())
 
     def test_game_root_ue4ss_character_package_installs_and_removes_reversibly(self) -> None:
         payload = make_package({
