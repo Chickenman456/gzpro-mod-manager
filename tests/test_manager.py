@@ -204,7 +204,7 @@ class ModManagerTests(unittest.TestCase):
         self.assertTrue((binaries / "dwmapi.dll").is_file())
         self.assertTrue((ue4ss / "UE4SS.dll").is_file())
 
-    def test_character_package_refuses_different_existing_ue4ss_dll(self) -> None:
+    def test_character_package_preserves_different_existing_ue4ss_proxy_dll(self) -> None:
         binaries = self.game_dir / "GZPro" / "Binaries" / "Win64"
         binaries.mkdir(parents=True, exist_ok=True)
         existing = binaries / "dwmapi.dll"
@@ -215,11 +215,27 @@ class ModManagerTests(unittest.TestCase):
             "GZPro/Binaries/Win64/ue4ss/Mods/CharacterPack/enabled.txt": b"",
             "GZPro/Binaries/Win64/ue4ss/Mods/CharacterPack/Scripts/main.lua": b"print('character mod')",
         })
-        with self.assertRaises(ConflictError):
-            self.install("CharacterPack.zip", payload, kind="override")
+        mod = self.install("CharacterPack.zip", payload, kind="override")
+        script = binaries / "ue4ss" / "Mods" / "CharacterPack" / "Scripts" / "main.lua"
+        ue4ss_core = binaries / "ue4ss" / "UE4SS.dll"
+
         self.assertEqual(existing.read_bytes(), b"a different proxy DLL")
-        self.assertFalse((binaries / "ue4ss" / "UE4SS.dll").exists())
-        self.assertEqual(list(self.manager.archive_dir.glob("*.zip")), [])
+        self.assertTrue(script.is_file())
+        self.assertEqual(ue4ss_core.read_bytes(), b"UE4SS core")
+
+        self.manager.set_mod_enabled(str(mod["id"]), False)
+        self.assertEqual(existing.read_bytes(), b"a different proxy DLL")
+        self.assertFalse(script.exists())
+        self.assertFalse(ue4ss_core.exists())
+
+        self.manager.set_mod_enabled(str(mod["id"]), True)
+        self.assertEqual(existing.read_bytes(), b"a different proxy DLL")
+        self.assertTrue(script.is_file())
+        self.assertEqual(ue4ss_core.read_bytes(), b"UE4SS core")
+
+        self.manager.delete_mod(str(mod["id"]))
+        self.assertEqual(existing.read_bytes(), b"a different proxy DLL")
+        self.assertFalse(script.exists())
 
     def test_ue4ss_only_package_uses_mod_folder_name(self) -> None:
         payload = make_package({
