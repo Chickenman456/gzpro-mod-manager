@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.12.4"
+APP_VERSION = "1.12.5"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -843,14 +843,14 @@ class ModManager:
                     if skin_stem is None:
                         skin_stem = current_stem
 
-                    if suffix in suffixes:
+                    if suffix in suffixes and not (suffix == ".pak" and composite_package):
                         raise ManagerError(f"The package contains more than one {suffix} file.")
                     suffixes.add(suffix)
                     target = (
-                        f"GZPro/Content/Paks/~mods/{skin_stem}{suffix}"
+                        f"GZPro/Content/Paks/~mods/{current_stem}{suffix}"
                         if composite_package else None
                     )
-                    add_member(info, entry, skin_stem + suffix, target)
+                    add_member(info, entry, current_stem + suffix, target)
 
                 if skin_stem:
                     allowed_folder_names = {skin_stem.casefold(), (skin_stem + "_P").casefold()}
