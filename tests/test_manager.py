@@ -100,7 +100,8 @@ class ModManagerTests(unittest.TestCase):
 
     def test_profiles_save_and_switch_enabled_mod_combinations(self) -> None:
         first = self.install("First.zip")
-        second = self.install("Second.zip")
+        second_payload = make_package(default_members("SecondMod"))
+        second = self.install("SecondMod.zip", second_payload)
         self.manager.set_mod_enabled(str(second["id"]), False)
         profile_a = self.manager.save_profile("First setup")
         self.assertEqual(profile_a["profiles"][0]["mod_ids"], [first["id"]])
