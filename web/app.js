@@ -334,9 +334,8 @@ async function importFile(file) {
     return;
   }
   const kind = document.querySelector('input[name="mod-kind"]:checked')?.value || "override";
-  const target = kind === "blueprint" ? "the game's LogicMods folder" : "the game's Paks folder as GZPro-" + file.name.replace(/\.zip$/i, "") + ".*";
   if (!window.confirm(
-    `Deploy ${file.name} into ${target}? The manager keeps a hash-checked backup and never overwrites different existing files. UE4SS packages can install a Windows DLL and scripts into the game folder. Only install ZIPs from sources you trust.${kind === "blueprint" ? " Loading it in-game requires UE4SS." : ""}`
+    `Deploy ${file.name} using its supported folder structure? The manager keeps a hash-checked backup and never overwrites different existing files. UE4SS packages can install a Windows DLL and scripts into the game folder. Only install ZIPs from sources you trust.${kind === "blueprint" ? " Loading it in-game requires UE4SS." : ""}`
   )) return;
   state.busy = true;
   byId("upload-progress").hidden = false;
