@@ -797,9 +797,10 @@ class ModManager:
                     )
                     add_member(info, entry, skin_stem + suffix, target)
 
-                if skin_folder and skin_stem and skin_folder.casefold() not in {
-                    skin_stem.casefold(), (skin_stem + "_P").casefold()
-                }:
+                allowed_folder_names = {skin_stem.casefold(), (skin_stem + "_P").casefold()}
+                if skin_stem.casefold().endswith("_p"):
+                    allowed_folder_names.add(skin_stem[:-2].casefold())
+                if skin_folder and skin_folder.casefold() not in allowed_folder_names:
                     raise ManagerError("The skin container folder must match the .utoc mod name.")
                 if skin_infos and not REQUIRED_MEMBER_SUFFIXES.issubset(suffixes):
                     raise ManagerError("The package must contain the cooked mod's .utoc and .ucas files.")
