@@ -15,9 +15,6 @@ The project is open source under the MIT License. See [LICENSE](LICENSE).
 
 To run from source for development, install Python 3.10 or newer and run `run.bat`.
 
-   ```powershell
-   .\run.bat --game-dir "D:\SteamLibrary\steamapps\common\Godzilla Destroy All Monsters Melee Remastered"
-   ```
 
 The Windows executable runs without opening a terminal and opens in a frameless, resizable desktop window with a custom Steam-style title bar and window controls (using WebView2 when available); if that runtime is unavailable, it falls back to the default browser. Its Windows executable icon is generated from `gzpicon.png`. The header's **Check for updates** button checks the latest stable GitHub release and can download, verify when a release digest is published, install, and restart the executable. The updater checks that the executable folder is writable before downloading, stages the replacement beside the executable, and logs any post-launch replacement error to `%LOCALAPPDATA%\\GZProModManager\\updates\\update-install.log`. Mod backups and settings remain in `%LOCALAPPDATA%\\GZProModManager` and are not replaced by an update.
 
