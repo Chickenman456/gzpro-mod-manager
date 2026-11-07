@@ -46,7 +46,7 @@ jobs:
       - name: Attach executable to v1.11.2 release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.11.1
+          tag_name: v1.11.2
           files: dist/GZProModManager.exe
           overwrite_files: true
           fail_on_unmatched_files: true
