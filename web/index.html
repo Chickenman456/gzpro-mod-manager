@@ -77,7 +77,7 @@
 
       <details class="package-guide">
         <summary>Mod descriptions and thumbnails</summary>
-        <p>Add these optional files to the <strong>root</strong> of your mod ZIP, alongside the cooked <code>.utoc</code> and <code>.ucas</code> files:</p>
+        <p>Add these optional files to the <strong>root</strong> of your mod ZIP. They work with standard packages and combined skin-loader packages:</p>
         <ul>
           <li><code>INFO.txt</code> — plain UTF-8 text. Its contents appear as the mod description in this launcher. Keep it to 16 KB or less.</li>
           <li><code>THUMB.png</code>, <code>THUMB.jpg</code>, <code>THUMB.jpeg</code>, or <code>THUMB.webp</code> — displays an image beside the mod. The image must be 1 MB or smaller.</li>
@@ -100,7 +100,7 @@
         <span class="drop-icon" aria-hidden="true">↓</span>
         <strong>Drop a cooked mod .zip</strong>
         <span>or click to choose one</span>
-        <small>The zip holds the mod's .utoc + .ucas (IoStore container). Raw WAV and loose .uasset files must be cooked into a mod first.</small>
+        <small>The zip can hold a standard cooked .utoc + .ucas package or a combined skin package with GZSkinLoader scripts. Raw WAV and loose .uasset files must be cooked into a mod first.</small>
       </label>
       <progress id="upload-progress" max="100" value="0" hidden></progress>
       <p id="action-message" class="message" role="status"></p>
