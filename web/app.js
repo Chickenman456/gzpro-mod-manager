@@ -285,6 +285,7 @@ async function refreshStatus() {
   const stage = byId("status-check-stage");
   const elapsed = byId("status-check-elapsed");
   const startedAt = performance.now();
+  const controller = new AbortController();
   let polling = false;
   indicator.hidden = false;
   stage.textContent = "Starting game and mod checks…";
@@ -306,12 +307,20 @@ async function refreshStatus() {
 
   await updateProgress();
   const progressTimer = setInterval(updateProgress, 500);
+  const timeoutTimer = setTimeout(() => controller.abort(), 30000);
   try {
-    renderStatus(await requestJson("/api/status"));
+    renderStatus(await requestJson("/api/status", { signal: controller.signal }));
   } catch (error) {
-    setMessage(`Could not read manager status: ${error.message}`, true);
-    stage.textContent = "Status check failed";
+    if (controller.signal.aborted) {
+      const lastStage = stage.textContent || "unknown step";
+      stage.textContent = `Timed out: ${lastStage}`;
+      setMessage(`The status check did not finish within 30 seconds. It stopped at: ${lastStage}. The window is still usable. Try Refresh once; if it happens again, send the last reported step with a bug report.`, true);
+    } else {
+      setMessage(`Could not read manager status: ${error.message}`, true);
+      stage.textContent = "Status check failed";
+    }
   } finally {
+    clearTimeout(timeoutTimer);
     clearInterval(progressTimer);
     elapsed.textContent = `${Math.floor((performance.now() - startedAt) / 1000)}s`;
     indicator.hidden = true;
