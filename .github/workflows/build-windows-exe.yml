@@ -6,8 +6,6 @@ on:
   push:
     branches:
       - master
-    paths:
-      - ".github/workflows/build-windows-exe.yml"
   workflow_dispatch:
 
 permissions:
@@ -38,10 +36,10 @@ jobs:
       - name: Build standalone executable with launcher logo
         run: pyinstaller --noconfirm --clean --onefile --name GZProModManager --collect-all webview --collect-all clr_loader --collect-all pythonnet --add-data "web;web" --add-data "gzprologo.png;." manager.py
 
-      - name: Attach executable to v1.5.0 release
+      - name: Attach executable to v1.6.0 release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.5.0
+          tag_name: v1.6.0
           files: dist/GZProModManager.exe
           overwrite_files: true
           fail_on_unmatched_files: true
