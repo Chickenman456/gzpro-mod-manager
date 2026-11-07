@@ -1568,6 +1568,7 @@ class DesktopWindowApi:
     def __init__(self) -> None:
         self.window = None
         self.webview_module = None
+        self._maximized = False
 
     def open_nexus(self, url: str) -> bool:
         """Open only the game's Nexus Mods pages in a separate app browser window."""
@@ -1648,9 +1649,10 @@ def main() -> int:
                 window = webview.create_window(
                     f"GZPro Mod Manager v{APP_VERSION}", address + "?desktop=1",
                     width=1180, height=850, min_size=(760, 600), resizable=True,
-                    frameless=False, resizable=True,
+                    frameless=False, js_api=api,
                     background_color="#13191b", shadow=True,
                 )
+                api.window = window
                 webview.start()
                 return 0
             except Exception as error:
