@@ -288,7 +288,7 @@ async function refreshStatus() {
   }
 }
 
-function uploadFile(file, kind, replaceModId = null) {
+function uploadFile(file, kind, replaceModId = null, skipUnsupported = false) {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", "/api/mods");
@@ -296,6 +296,7 @@ function uploadFile(file, kind, replaceModId = null) {
     request.setRequestHeader("X-Mod-Name", encodeURIComponent(file.name));
     request.setRequestHeader("X-Mod-Kind", kind);
     if (replaceModId) request.setRequestHeader("X-Replace-Mod-Id", replaceModId);
+    if (skipUnsupported) request.setRequestHeader("X-Skip-Unsupported", "true");
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         byId("upload-progress").value = Math.round((event.loaded / event.total) * 100);
@@ -346,7 +347,14 @@ async function importFile(file) {
     let mod;
     try { mod = await uploadFile(file, kind); }
     catch (error) {
-      if (!error.replaceModId) throw error;
+      if (/^Unsupported file or folder in the package: /i.test(error.message)
+          && window.confirm(
+            error.message + "\n\nSkip unsupported files and folders and try importing the supported mod files? Unknown files will NOT be installed. Only continue if you trust this ZIP."
+          )) {
+        mod = await uploadFile(file, kind, null, true);
+      } else if (!error.replaceModId) {
+        throw error;
+      }
       const replace = window.confirm("A mod named \"" + error.replaceStem + "\" is already in your library. Replace its installed version with this ZIP? The existing mod and profile references will be kept. If replacement fails, the previous version will be restored.");
       if (!replace) { setMessage("Existing mod was left unchanged."); return; }
       mod = await uploadFile(file, kind, error.replaceModId);
