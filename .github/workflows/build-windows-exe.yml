@@ -28,18 +28,21 @@ jobs:
       - name: Install PyInstaller
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller pywebview
+          python -m pip install pyinstaller pywebview pillow
 
       - name: Run test suite
         run: python -m unittest discover -s tests -v
 
-      - name: Build standalone executable with launcher logo
-        run: pyinstaller --noconfirm --clean --onefile --name GZProModManager --collect-all webview --collect-all clr_loader --collect-all pythonnet --add-data "web;web" --add-data "gzprologo.png;." manager.py
+      - name: Convert desktop icon to Windows ICO
+        run: python -c "from PIL import Image; Image.open('gzpicon.png').convert('RGBA').save('GZProModManager.ico', format='ICO', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"
 
-      - name: Attach executable to v1.6.0 release
+      - name: Build standalone executable with desktop icon
+        run: pyinstaller --noconfirm --clean --onefile --name GZProModManager --icon GZProModManager.ico --collect-all webview --collect-all clr_loader --collect-all pythonnet --add-data "web;web" --add-data "gzprologo.png;." --add-data "gzpicon.png;." manager.py
+
+      - name: Attach executable to v1.6.1 release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.6.0
+          tag_name: v1.6.1
           files: dist/GZProModManager.exe
           overwrite_files: true
           fail_on_unmatched_files: true
