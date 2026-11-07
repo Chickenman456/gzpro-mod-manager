@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.8.0"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -314,7 +314,11 @@ class ModManager:
                     or not isinstance(member.get("sha256"), str)
                     or not re.fullmatch(r"[0-9a-f]{64}", member["sha256"])
                     or not isinstance(member.get("size"), int)
-                    or member["size"] <= 0
+                    or member["size"] < 0
+                    or (
+                        member["size"] == 0
+                        and member.get("target") != "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/enabled.txt"
+                    )
                 ):
                     raise StateError(
                         "The mod recovery manifest contains an invalid entry. No files were changed."
@@ -577,7 +581,8 @@ class ModManager:
 
                 def add_member(info, entry, deployed_name, target=None):
                     nonlocal total_size
-                    if info.file_size <= 0:
+                    is_empty_loader_flag = entry.casefold() == "gzskinloader/enabled.txt"
+                    if info.file_size <= 0 and not is_empty_loader_flag:
                         raise ManagerError(f"{entry} in the package is empty.")
                     if info.file_size > MAX_MOD_SIZE:
                         raise ManagerError(f"{entry} exceeds the 8 GiB size limit.")
@@ -1165,8 +1170,6 @@ def schedule_self_update(release: dict[str, object]) -> None:
     if sys.platform != "win32" or not getattr(sys, "frozen", False):
         raise ManagerError("In-app installation is available in the Windows executable, not the Python source version.")
     current_exe = Path(sys.executable).resolve()
-    if current_exe.name.casefold() != "gzpromodmanager.exe":
-        raise ManagerError("The running application path is not the expected manager executable.")
     update_dir = _default_state_base() / "updates"
     update_dir.mkdir(parents=True, exist_ok=True)
     # Stage beside the running executable so replacement stays on the same volume.
