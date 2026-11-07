@@ -166,3 +166,9 @@ footer strong { color: #cbd2df; }
 .window-controls button:hover { background: #343b49; }
 .window-controls #window-close:hover { background: #c42b3a; color: white; }
 body:has(.desktop-titlebar:not([hidden])) .topbar { padding-top: 1rem; }
+
+
+.update-status { display: flex; align-items: center; gap: .8rem; min-width: 0; }
+.update-spinner { display: inline-block; width: 22px; height: 22px; flex: 0 0 22px; border: 3px solid #465466; border-top-color: #76c9f4; border-radius: 50%; animation: update-spin .75s linear infinite; }
+.update-spinner[hidden] { display: none; }
+@keyframes update-spin { to { transform: rotate(360deg); } }
