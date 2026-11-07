@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  font-family: "Noto Sans", "Noto Sans JP", sans-serif;
+  font-family: Arial, "Yu Gothic UI", sans-serif;
   background: #13191b;
   color: #eef0f6;
   font-synthesis: none;
@@ -30,7 +30,7 @@ body {
 h1, h2, h3, p { margin-top: 0; }
 h1, h2, h3 {
   color: #faedd5;
-  font-family: "Anton", Impact, sans-serif;
+  font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
   font-weight: 400;
   letter-spacing: .025em;
   text-transform: uppercase;
@@ -156,29 +156,15 @@ footer strong { color: #cbd2df; }
 @media (max-width: 650px) { .update-panel { align-items: flex-start; flex-direction: column; } }
 
 
-/* Frameless desktop window: Steam-style custom title bar and native controls. */
-.desktop-titlebar { height: 38px; display: flex; align-items: stretch; justify-content: space-between; background: #171a21; border-bottom: 1px solid #303644; color: #dce2ed; user-select: none; }
-.desktop-titlebar[hidden] { display: none; }
-.desktop-drag-region { display: flex; flex: 1; align-items: center; gap: .55rem; padding-left: .75rem; font-size: .82rem; font-weight: 700; letter-spacing: .02em; }
-.titlebar-logo { width: 22px; height: 22px; object-fit: contain; }
-.window-controls { display: flex; height: 38px; }
-.window-controls button { width: 46px; border: 0; border-radius: 0; background: transparent; color: #c8d0dd; font: 500 17px "Segoe UI", sans-serif; cursor: pointer; }
-.window-controls button:hover { background: #343b49; }
-.window-controls #window-close:hover { background: #c42b3a; color: white; }
-body:has(.desktop-titlebar:not([hidden])) .topbar { padding-top: 1rem; }
-
+/* Native Windows title bar provides stable drag, resize, minimize, maximize, and close controls. */
 
 .update-status { display: flex; align-items: center; gap: .8rem; min-width: 0; }
 .update-spinner { display: inline-block; width: 22px; height: 22px; flex: 0 0 22px; border: 3px solid #465466; border-top-color: #76c9f4; border-radius: 50%; animation: update-spin .75s linear infinite; }
 .update-spinner[hidden] { display: none; }
 @keyframes update-spin { to { transform: rotate(360deg); } }
 
-body:has(.desktop-titlebar:not([hidden])) { min-height: 100vh; border: 1px solid #303744; }
-.desktop-titlebar { box-shadow: 0 1px 0 #0d1015; }
-
-/* Consistent Lucide-style outline controls, rendered as SVG. */
-.window-controls button { display: grid; place-items: center; }
-.window-controls button svg, .icon-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* Consistent Lucide-style outline bug-report icon. */
+.icon-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .icon-button { display: inline-grid; place-items: center; width: 36px; height: 36px; border: 1px solid #485161; border-radius: 7px; background: #303745; color: #dce2ed; text-decoration: none; cursor: pointer; }
 .icon-button:hover { border-color: #76c9f4; background: #394555; color: #fff; }
 .icon-button svg { width: 18px; height: 18px; }
@@ -191,12 +177,11 @@ body:has(.desktop-titlebar:not([hidden])) { min-height: 100vh; border: 1px solid
 
 /* Godzilla Remastered font lineup */
 .product-subtitle { margin: .35rem 0 0; color: #b7c1d2; font: 600 .78rem "Saira Extra Condensed", sans-serif; letter-spacing: .07em; text-transform: uppercase; }
-h2 { font-family: "Fjalla One", "Anton", sans-serif; }
-h3 { font-family: "Special Gothic Expanded One", "Anton", sans-serif; }
-.version-label { font-family: "Fugaz One", sans-serif; }
-.mod-info, .mod-description, .notice p, .package-guide, .path-form, .empty-state { font-family: "Noto Sans", "Noto Sans JP", sans-serif; }
-.button, .tab-button, .local-badge, .eyebrow { font-family: "Saira Extra Condensed", "Barlow Condensed", sans-serif; }
-:lang(ja), [lang="ja"] { font-family: "Noto Sans JP", "Noto Sans", sans-serif; }
+h1, h2, h3 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; }
+.version-label { font-family: "Arial Narrow", "Franklin Gothic Medium", sans-serif; font-weight: 700; }
+.mod-info, .mod-description, .notice p, .package-guide, .path-form, .empty-state { font-family: Arial, "Yu Gothic UI", sans-serif; }
+.button, .tab-button, .local-badge, .eyebrow, .product-subtitle { font-family: "Arial Narrow", "Franklin Gothic Medium", sans-serif; }
+:lang(ja), [lang="ja"] { font-family: "Yu Gothic UI", Meiryo, sans-serif; }
 
 .profile-panel { margin-top: 1rem; }
 .profile-form, .profile-actions { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .6rem; margin-top: .65rem; }
@@ -205,3 +190,9 @@ h3 { font-family: "Special Gothic Expanded One", "Anton", sans-serif; }
 .profile-actions select { min-width: 0; border: 1px solid #454c5a; border-radius: 7px; padding: .65rem .8rem; background: #11141b; color: #eef0f6; }
 #profile-status { margin-top: .7rem; }
 @media (max-width: 650px) { .profile-form, .profile-actions { grid-template-columns: 1fr 1fr; } .profile-form label, .profile-actions label { grid-column: 1 / -1; } .profile-form input, .profile-actions select { min-width: 0; } }
+
+.nexus-search { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .65rem; margin: .75rem 0 1rem; }
+.nexus-search label { color: #c9ced9; }
+.nexus-search input { min-width: 0; border: 1px solid #454c5a; border-radius: 7px; padding: .7rem .8rem; background: #11141b; color: #eef0f6; }
+.nexus-shortcuts { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: 1rem; }
+@media (max-width: 650px) { .nexus-search { grid-template-columns: 1fr auto; } .nexus-search label { grid-column: 1 / -1; } }
