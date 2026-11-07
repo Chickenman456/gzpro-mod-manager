@@ -669,9 +669,9 @@ class ModManager:
                     with package.open(thumb) as stream:
                         image_bytes = stream.read(MAX_THUMBNAIL_SIZE + 1)
                     signatures = (
-                        (".png", b"\\x89PNG\\r\\n\\x1a\\n", "image/png"),
-                        (".jpg", b"\\xff\\xd8\\xff", "image/jpeg"),
-                        (".jpeg", b"\\xff\\xd8\\xff", "image/jpeg"),
+                        (".png", b"\x89PNG\r\n\x1a\n", "image/png"),
+                        (".jpg", b"\xff\xd8\xff", "image/jpeg"),
+                        (".jpeg", b"\xff\xd8\xff", "image/jpeg"),
                         (".webp", b"RIFF", "image/webp"),
                     )
                     suffix = Path(_root_package_name(thumb.filename) or "").suffix.casefold()
