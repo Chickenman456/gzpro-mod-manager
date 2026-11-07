@@ -59,4 +59,4 @@ jobs:
         shell: pwsh
         run: |
           $release = gh api "repos/${{ github.repository }}/releases/tags/v1.12.8" | ConvertFrom-Json
-          gh api --method PATCH "repos/${{ github.repository }}/releases/$($release.id)" -f make_latest=true
+          gh api --method PATCH "repos/${{ github.repository }}/releases/$($release.id)" -F make_latest=true
