@@ -64,12 +64,17 @@ python -m unittest discover -s tests
 ```
 
 
-### Mod profiles (v1.9.4)
+### Mod profiles (v1.10.0)
 
 Save the current enabled-mod combination as a named profile, then apply it later to enable those mods and disable other managed mods. Deleting a profile does not delete any mods. Applying a profile requires the game to be closed; all mod backups are retained. Manually changing a mod clears the active-profile indicator until a profile is applied or saved again.
 
 
 
-### Game launch button (v1.9.4)
+### Game launch button (v1.10.0)
 
 The Game Install panel includes a Launch Game button. It starts the configured game executable as a detached Windows process and is disabled if the game is already running or the install is invalid.
+
+
+### Mod names and updating installed mods
+
+Click a managed mod title to set a display name. This changes only the manager label, not game files. Importing another ZIP with the same mod name offers to replace the existing version. The manager keeps the mod ID and profile references, verifies the old backup and installed files, and restores the previous version if deployment fails.
