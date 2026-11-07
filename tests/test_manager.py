@@ -81,7 +81,8 @@ class ModManagerTests(unittest.TestCase):
 
         self.assertTrue(result["opened"])
         self.assertTrue(Path(result["path"]).samefile(self.paks_dir))
-        self.assertEqual(popen.call_args.args[0], ["explorer.exe", str(self.paks_dir)])
+        self.assertEqual(popen.call_args.args[0][0], "explorer.exe")
+        self.assertTrue(Path(popen.call_args.args[0][1]).samefile(self.paks_dir))
 
     def test_mod_display_name_can_be_renamed_without_changing_deployed_files(self) -> None:
         mod = self.install()
@@ -137,6 +138,43 @@ class ModManagerTests(unittest.TestCase):
         self.manager.delete_mod(str(mod["id"]))
         self.assertFalse((paks_mods / "HeiseiBurningSkin_P.ucas").exists())
         self.assertFalse((loader / "enabled.txt").exists())
+
+    def test_game_root_ue4ss_character_package_installs_and_removes_reversibly(self) -> None:
+        payload = make_package({
+            "GZPro/Binaries/Win64/dwmapi.dll": b"proxy loader",
+            "GZPro/Binaries/Win64/ue4ss/UE4SS.dll": b"UE4SS core",
+            "GZPro/Binaries/Win64/ue4ss/UE4SS-settings.ini": b"[Settings]",
+            "GZPro/Binaries/Win64/ue4ss/Mods/CharacterPack/enabled.txt": b"",
+            "GZPro/Binaries/Win64/ue4ss/Mods/CharacterPack/Scripts/main.lua": b"print('character mod')",
+            "GZPro/Content/Paks/~mods/CharacterPack_P.utoc": b"toc",
+            "GZPro/Content/Paks/~mods/CharacterPack_P.ucas": b"cas",
+        })
+        mod = self.install("CharacterPack.zip", payload, kind="override")
+        binaries = self.game_dir / "GZPro" / "Binaries" / "Win64"
+        paks_mods = self.paks_dir / "~mods"
+        loader_mod = binaries / "ue4ss" / "Mods" / "CharacterPack"
+
+        self.assertTrue(mod["requires_ue4ss"])
+        self.assertEqual((binaries / "dwmapi.dll").read_bytes(), b"proxy loader")
+        self.assertEqual((binaries / "ue4ss" / "UE4SS.dll").read_bytes(), b"UE4SS core")
+        self.assertEqual((loader_mod / "Scripts" / "main.lua").read_bytes(), b"print('character mod')")
+        self.assertEqual((paks_mods / "CharacterPack_P.utoc").read_bytes(), b"toc")
+        self.assertTrue(self.manager.get_status()["ue4ss_installed"])
+
+        self.manager.set_mod_enabled(str(mod["id"]), False)
+        self.assertFalse((binaries / "dwmapi.dll").exists())
+        self.assertFalse((loader_mod / "Scripts" / "main.lua").exists())
+        self.assertFalse((paks_mods / "CharacterPack_P.utoc").exists())
+
+        self.manager.set_mod_enabled(str(mod["id"]), True)
+        self.assertEqual((binaries / "dwmapi.dll").read_bytes(), b"proxy loader")
+        self.assertEqual((loader_mod / "Scripts" / "main.lua").read_bytes(), b"print('character mod')")
+
+        self.manager.delete_mod(str(mod["id"]))
+        self.assertFalse((binaries / "dwmapi.dll").exists())
+        self.assertFalse((binaries / "ue4ss" / "UE4SS.dll").exists())
+        self.assertFalse((loader_mod / "enabled.txt").exists())
+        self.assertFalse((paks_mods / "CharacterPack_P.ucas").exists())
 
     def test_profiles_save_and_switch_enabled_mod_combinations(self) -> None:
         first = self.install("First.zip")
