@@ -17,7 +17,7 @@ A small, local-only Windows tool for safely staging pre-cooked `.pak` mods for *
    .\run.bat --game-dir "D:\SteamLibrary\steamapps\common\Godzilla Destroy All Monsters Melee Remastered"
    ```
 
-The Windows executable opens in a frameless desktop window with a custom title bar and window controls (using WebView2 when available); if that runtime is unavailable, it falls back to the default browser. The header's **Check for updates** button checks the latest stable GitHub release and can download, verify when a release digest is published, install, and restart the executable. Mod backups and settings remain in `%LOCALAPPDATA%\\GZProModManager` and are not replaced by an update.
+The Windows executable opens in a frameless desktop window with custom Steam-style title bar and window controls (using WebView2 when available); if that runtime is unavailable, it falls back to the default browser. Its Windows executable icon is generated from `gzpicon.png`. The header's **Check for updates** button checks the latest stable GitHub release and can download, verify when a release digest is published, install, and restart the executable. The updater checks that the executable folder is writable before downloading, stages the replacement beside the executable, and logs any post-launch replacement error to `%LOCALAPPDATA%\\GZProModManager\\updates\\update-install.log`. Mod backups and settings remain in `%LOCALAPPDATA%\\GZProModManager` and are not replaced by an update.
 
 The launcher includes a **Changelog** tab that reads the latest commit history from this GitHub repository. An internet connection is required to load it.
 
