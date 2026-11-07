@@ -987,7 +987,10 @@ class ModManager:
                         installed = self._existing_named_file(old_path.parent, old_path.name)
                         if installed is not None:
                             actual_hash, actual_size = _hash_file(installed)
-                            if not existing["enabled"] or actual_hash != old_member["sha256"] or actual_size != old_member["size"]:
+                            if (
+                                (existing["enabled"] and (actual_hash != old_member["sha256"] or actual_size != old_member["size"]))
+                                or (not existing["enabled"] and not old_member.get("preexisting"))
+                            ):
                                 raise ConflictError(f"{installed.name} does not match the existing managed mod. It was left untouched.")
                             if not old_member.get("preexisting"):
                                 old_installed.append(installed)
@@ -1014,7 +1017,11 @@ class ModManager:
                         for member in members:
                             destination = self._member_path(member, self._mod_target_dir({"kind": kind}))
                             installed = self._existing_named_file(destination.parent, destination.name)
-                            if installed is not None and str(destination.resolve()).casefold() not in old_paths:
+                            if (
+                                installed is not None
+                                and str(destination.resolve()).casefold() not in old_paths
+                                and not member.get("preexisting")
+                            ):
                                 raise ConflictError(f"{installed.name} already exists outside the mod being replaced. It was not overwritten.")
                         for installed in old_installed:
                             installed.unlink()
@@ -1024,7 +1031,7 @@ class ModManager:
                             for member in members:
                                 destination = self._member_path(member, self._mod_target_dir({"kind": kind}))
                                 installed = self._existing_named_file(destination.parent, destination.name)
-                                if installed is not None:
+                                if installed is not None and not member.get("preexisting"):
                                     actual_hash, actual_size = _hash_file(installed)
                                     if actual_hash == member["sha256"] and actual_size == member["size"]:
                                         installed.unlink()
@@ -1057,7 +1064,7 @@ class ModManager:
                             for member in members:
                                 destination = self._member_path(member, self._mod_target_dir({"kind": kind}))
                                 installed = self._existing_named_file(destination.parent, destination.name)
-                                if installed is not None:
+                                if installed is not None and not member.get("preexisting"):
                                     actual_hash, actual_size = _hash_file(installed)
                                     if actual_hash == member["sha256"] and actual_size == member["size"]:
                                         installed.unlink()
