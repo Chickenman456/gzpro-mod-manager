@@ -4,7 +4,7 @@ const byId = (id) => document.getElementById(id);
 
  
 function selectTab(name) {
-  for (const page of ["mods", "changelog", "nexus"]) {
+  for (const page of ["mods", "changelog"]) {
     const active = name === page;
     byId("tab-" + page).classList.toggle("active", active);
     byId("tab-" + page).setAttribute("aria-selected", String(active));
@@ -167,6 +167,7 @@ function renderStatus(status) {
   else if (status.active_profile_id) profileSelect.value = status.active_profile_id;
   byId("apply-profile").disabled = state.busy || !profileSelect.value || !status.game_valid || status.game_running || Boolean(status.game_check_error);
   byId("delete-profile").disabled = state.busy || !profileSelect.value;
+  byId("launch-game").disabled = !status.game_valid || status.game_running || Boolean(status.game_check_error);
   byId("profile-status").textContent = status.active_profile_id
     ? `Active profile: ${profiles.find((profile) => profile.id === status.active_profile_id)?.name || "Saved profile"}`
     : "No profile is currently active. Saving captures the mods that are enabled right now.";
@@ -399,53 +400,24 @@ byId("profile-select").addEventListener("change", () => {
   byId("apply-profile").disabled = !byId("profile-select").value || state.busy || !state.status?.game_valid || state.status?.game_running || Boolean(state.status?.game_check_error);
   byId("delete-profile").disabled = !byId("profile-select").value || state.busy;
 });
+byId("launch-game").addEventListener("click", async () => {
+  const button = byId("launch-game");
+  button.disabled = true;
+  button.textContent = "Launching…";
+  try {
+    await requestJson("/api/game/launch", { method: "POST" });
+    button.textContent = "Game launched";
+    setTimeout(() => { button.textContent = "Launch Game"; refreshStatus(); }, 2500);
+  } catch (error) {
+    setMessage(`Could not launch the game: ${error.message}`, true);
+    button.textContent = "Launch Game";
+    refreshStatus();
+  }
+});
 byId("check-updates").addEventListener("click", checkForUpdates);
 byId("install-update").addEventListener("click", installUpdate);
 byId("tab-mods").addEventListener("click", () => selectTab("mods"));
 byId("tab-changelog").addEventListener("click", () => selectTab("changelog"));
-let nexusSort = "popular";
-async function loadNexusMods(query = "") {
-  const status = byId("nexus-status");
-  const results = byId("nexus-results");
-  status.textContent = "Loading mods from Nexus Mods…";
-  status.classList.remove("error");
-  results.innerHTML = "";
-  document.querySelectorAll("[data-nexus-sort]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.nexusSort === nexusSort);
-    button.disabled = true;
-  });
-  try {
-    const params = new URLSearchParams({ sort: nexusSort });
-    if (query) params.set("q", query);
-    const data = await requestJson("/api/nexus/mods?" + params.toString());
-    if (!Array.isArray(data.mods) || !data.mods.length) {
-      status.textContent = query ? "No matching mods were found." : "Nexus did not return any mods for this list.";
-      return;
-    }
-    results.innerHTML = data.mods.map((mod) => {
-      const image = mod.thumbnail ? `<img src="${escapeHtml(mod.thumbnail)}" alt="" loading="lazy">` : "";
-      return `<a class="nexus-mod-card" href="${escapeHtml(mod.url)}" target="_blank" rel="noopener noreferrer">${image}<span><strong>${escapeHtml(mod.title)}</strong><small>Mod #${escapeHtml(mod.id)} · View on Nexus Mods</small></span></a>`;
-    }).join("");
-    status.textContent = `Showing ${data.mods.length} mods from Nexus Mods.`;
-  } catch (error) {
-    status.textContent = `Could not load Nexus mods: ${error.message}. Nexus may be temporarily blocking automated requests; try again later.`;
-    status.classList.add("error");
-  } finally {
-    document.querySelectorAll("[data-nexus-sort]").forEach((button) => { button.disabled = false; });
-  }
-}
-byId("tab-nexus").addEventListener("click", () => {
-  selectTab("nexus");
-  if (!state.nexusLoaded) { state.nexusLoaded = true; loadNexusMods(); }
-});
-document.querySelectorAll("[data-nexus-sort]").forEach((button) => button.addEventListener("click", () => {
-  nexusSort = button.dataset.nexusSort;
-  loadNexusMods(byId("nexus-search").value.trim());
-}));
-byId("nexus-search-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  loadNexusMods(byId("nexus-search").value.trim());
-});
 byId("refresh-changelog").addEventListener("click", loadChangelog);
 
 byId("mod-file").addEventListener("change", (event) => importFile(event.target.files[0]));
