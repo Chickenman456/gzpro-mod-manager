@@ -68,6 +68,36 @@ class ModManagerTests(unittest.TestCase):
             base = self.paks_dir / "LogicMods"
         return [base / f"{stem}{suffix}" for suffix in (".utoc", ".ucas", ".pak")]
 
+
+    def test_combined_burning_godzilla_package_installs_skin_and_ue4ss_loader(self) -> None:
+        payload = make_package({
+            "README.txt": b"Install both components",
+            "HeiseiBurningSkin/HeiseiBurningSkin_P.utoc": b"toc",
+            "HeiseiBurningSkin/HeiseiBurningSkin_P.ucas": b"cas",
+            "GZSkinLoader/Scripts/main.lua": b"print('loader')",
+            "GZSkinLoader/enabled.txt": b"1",
+        })
+        mod = self.install("BurningGodzilla.zip", payload, kind="override")
+        paks_mods = self.paks_dir / "~mods"
+        loader = self.game_dir / "GZPro" / "Binaries" / "Win64" / "ue4ss" / "Mods" / "GZSkinLoader"
+        self.assertEqual((paks_mods / "HeiseiBurningSkin_P.utoc").read_bytes(), b"toc")
+        self.assertEqual((paks_mods / "HeiseiBurningSkin_P.ucas").read_bytes(), b"cas")
+        self.assertTrue((paks_mods / "HeiseiBurningSkin_P.pak").is_file())
+        self.assertEqual((loader / "Scripts" / "main.lua").read_bytes(), b"print('loader')")
+        self.assertEqual((loader / "enabled.txt").read_bytes(), b"1")
+        self.assertEqual(mod["file_count"], 5)
+        disabled = self.manager.set_mod_enabled(str(mod["id"]), False)
+        self.assertFalse(disabled["enabled"])
+        self.assertFalse((paks_mods / "HeiseiBurningSkin_P.utoc").exists())
+        self.assertFalse((loader / "Scripts" / "main.lua").exists())
+        self.assertTrue((self.manager.archive_dir / f"{mod['id']}.zip").is_file())
+        enabled = self.manager.set_mod_enabled(str(mod["id"]), True)
+        self.assertTrue(enabled["enabled"])
+        self.assertEqual((loader / "Scripts" / "main.lua").read_bytes(), b"print('loader')")
+        self.manager.delete_mod(str(mod["id"]))
+        self.assertFalse((paks_mods / "HeiseiBurningSkin_P.ucas").exists())
+        self.assertFalse((loader / "enabled.txt").exists())
+
     def test_import_keeps_verified_backup_and_does_not_change_original_archives(self) -> None:
         original_bytes = self.original_archive.read_bytes()
         mod = self.install()
