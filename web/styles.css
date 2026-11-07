@@ -30,7 +30,7 @@ body {
 h1, h2, h3, p { margin-top: 0; }
 h1, h2, h3 {
   color: #faedd5;
-  font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+  font-family: "Fjalla One", "Barlow Condensed", sans-serif;
   font-weight: 400;
   letter-spacing: .025em;
   text-transform: uppercase;
@@ -177,9 +177,8 @@ footer strong { color: #cbd2df; }
 
 /* Godzilla Remastered font lineup */
 .product-subtitle { margin: .35rem 0 0; color: #b7c1d2; font: 600 .78rem "Saira Extra Condensed", sans-serif; letter-spacing: .07em; text-transform: uppercase; }
-h1 { font-family: "Anton", Impact, sans-serif; }
-h2 { font-family: "Fjalla One", "Anton", sans-serif; }
-h3 { font-family: "Special Gothic Expanded One", "Anton", sans-serif; }
+h1, #install-title, #profiles-title, #mods-title { font-family: "Anton", Impact, sans-serif; }
+h2, h3 { font-family: "Fjalla One", "Barlow Condensed", sans-serif; }
 .version-label { font-family: "Fugaz One", Impact, sans-serif; }
 .mod-info, .mod-description, .notice p, .package-guide, .path-form, .empty-state { font-family: "Noto Sans", Arial, sans-serif; }
 .button, .tab-button, .local-badge, .eyebrow, .product-subtitle { font-family: "Saira Extra Condensed", "Barlow Condensed", Impact, sans-serif; }
@@ -198,3 +197,13 @@ h3 { font-family: "Special Gothic Expanded One", "Anton", sans-serif; }
 .nexus-search input { min-width: 0; border: 1px solid #454c5a; border-radius: 7px; padding: .7rem .8rem; background: #11141b; color: #eef0f6; }
 .nexus-shortcuts { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: 1rem; }
 @media (max-width: 650px) { .nexus-search { grid-template-columns: 1fr auto; } .nexus-search label { grid-column: 1 / -1; } }
+
+.nexus-toolbar { display:flex; flex-wrap:wrap; gap:.5rem; margin:.75rem 0; }
+.nexus-toolbar .active { border-color:#76c9f4; background:#1b4b6b; color:#fff; }
+.nexus-results { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:.75rem; margin-top:1rem; }
+.nexus-mod-card { display:flex; min-width:0; gap:.7rem; align-items:flex-start; border:1px solid #343b49; border-radius:9px; padding:.7rem; background:#151922; color:inherit; text-decoration:none; }
+.nexus-mod-card:hover { border-color:#76c9f4; background:#1a2430; }
+.nexus-mod-card img { width:76px; height:76px; flex:0 0 76px; object-fit:cover; border-radius:6px; background:#10131a; }
+.nexus-mod-card strong { display:block; overflow-wrap:anywhere; color:#eef0f6; }
+.nexus-mod-card small { display:block; margin-top:.25rem; }
+.nexus-status { min-height:1.5rem; margin-top:.75rem; }
