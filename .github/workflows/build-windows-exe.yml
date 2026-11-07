@@ -43,17 +43,20 @@ jobs:
       - name: Build standalone executable with desktop icon
         run: pyinstaller --noconfirm --clean --onefile --noconsole --name GZProModManager --icon GZProModManager.ico --collect-all webview --collect-all clr_loader --collect-all pythonnet --add-data "web;web" --add-data "gzprologo.png;." --add-data "gzpicon.png;." manager.py
 
-      - name: Attach executable to v1.12.1 release
+      - name: Attach executable to v1.12.8 release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.12.1
+          tag_name: v1.12.8
           files: dist/GZProModManager.exe
           overwrite_files: true
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set v1.12.1 as the latest GitHub release
+      - name: Set v1.12.8 as the latest GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh api --method PATCH repos/${{ github.repository }}/releases/tags/v1.12.1 -f make_latest=true
+        shell: pwsh
+        run: |
+          $release = gh api "repos/${{ github.repository }}/releases/tags/v1.12.8" | ConvertFrom-Json
+          gh api --method PATCH "repos/${{ github.repository }}/releases/$($release.id)" -f make_latest=true
