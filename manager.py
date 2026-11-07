@@ -319,6 +319,7 @@ class ModManager:
                     or not re.fullmatch(r"[0-9a-f]{64}", member["sha256"])
                     or not isinstance(member.get("size"), int)
                     or member["size"] < 0
+                    or ("preexisting" in member and not isinstance(member.get("preexisting"), bool))
                     or (
                         member["size"] == 0
                         and not (
@@ -816,7 +817,7 @@ class ModManager:
                 if not stem:
                     mod_folder = next(
                         (
-                            name.split("/")[4]
+                            name.split("/")[5]
                             for _, name, _ in runtime_infos
                             if name.casefold().startswith("gzpro/binaries/win64/ue4ss/mods/")
                             and len(name.split("/")) > 5
@@ -867,11 +868,22 @@ class ModManager:
     ) -> None:
         for member in members:
             destination = self._member_path(member, target_dir)
-            if self._existing_named_file(destination.parent, destination.name) is not None:
-                raise ConflictError(f"{destination.name} already exists in {destination.parent}; it was not overwritten. If this is an existing UE4SS install, do not replace its loader files.")
+            installed = self._existing_named_file(destination.parent, destination.name)
+            if installed is not None:
+                if member.get("preexisting"):
+                    actual_hash, actual_size = _hash_file(installed)
+                    if actual_hash == member["sha256"] and actual_size == member["size"]:
+                        continue
+                raise ConflictError(
+                    f"{destination.name} already exists in {destination.parent}; it was not overwritten. "
+                    "If this is an existing UE4SS install, the bundled loader file must match it exactly."
+                )
         with zipfile.ZipFile(archive) as package:
             for member in members:
                 destination = self._member_path(member, target_dir)
+                installed = self._existing_named_file(destination.parent, destination.name)
+                if installed is not None and member.get("preexisting"):
+                    continue
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 if member.get("stub"):
                     self._copy_stream_to_game(
@@ -967,16 +979,38 @@ class ModManager:
                     old_target = self._mod_target_dir(existing)
                     old_installed = []
                     old_paths = {}
+                    old_members_by_path = {}
                     for old_member in existing["members"]:
                         old_path = self._member_path(old_member, old_target)
+                        old_key = str(old_path.resolve()).casefold()
+                        old_members_by_path[old_key] = old_member
                         installed = self._existing_named_file(old_path.parent, old_path.name)
                         if installed is not None:
                             actual_hash, actual_size = _hash_file(installed)
                             if not existing["enabled"] or actual_hash != old_member["sha256"] or actual_size != old_member["size"]:
                                 raise ConflictError(f"{installed.name} does not match the existing managed mod. It was left untouched.")
-                            old_installed.append(installed)
-                            old_paths[str(old_path.resolve()).casefold()] = installed
+                            if not old_member.get("preexisting"):
+                                old_installed.append(installed)
+                            old_paths[old_key] = installed
                     if existing["enabled"]:
+                        for member in members:
+                            destination = self._member_path(member, self._mod_target_dir({"kind": kind}))
+                            installed = self._existing_named_file(destination.parent, destination.name)
+                            if installed is not None:
+                                key = str(destination.resolve()).casefold()
+                                if key in old_paths and old_members_by_path.get(key, {}).get("preexisting"):
+                                    actual_hash, actual_size = _hash_file(installed)
+                                    if actual_hash == member["sha256"] and actual_size == member["size"]:
+                                        member["preexisting"] = True
+                                        continue
+                                if key not in old_paths:
+                                    actual_hash, actual_size = _hash_file(installed)
+                                    if actual_hash != member["sha256"] or actual_size != member["size"]:
+                                        raise ConflictError(
+                                            f"{installed.name} already exists and differs from this mod. "
+                                            "The manager will not overwrite it."
+                                        )
+                                    member["preexisting"] = True
                         for member in members:
                             destination = self._member_path(member, self._mod_target_dir({"kind": kind}))
                             installed = self._existing_named_file(destination.parent, destination.name)
@@ -1033,7 +1067,20 @@ class ModManager:
                     return self._describe_mod(new_record, old_archive)
                 if kind == MOD_KIND_BLUEPRINT:
                     self._check_logic_mods_path(create=True)
-                self._deploy_members(archive_path, members, self._mod_target_dir({"kind": kind}))
+                target_dir = self._mod_target_dir({"kind": kind})
+                for member in members:
+                    destination = self._member_path(member, target_dir)
+                    installed = self._existing_named_file(destination.parent, destination.name)
+                    if installed is None:
+                        continue
+                    actual_hash, actual_size = _hash_file(installed)
+                    if actual_hash != member["sha256"] or actual_size != member["size"]:
+                        raise ConflictError(
+                            f"{installed.name} already exists and differs from this mod. "
+                            "The manager will not overwrite it. If it is a UE4SS file, keep the existing loader version."
+                        )
+                    member["preexisting"] = True
+                self._deploy_members(archive_path, members, target_dir)
             except Exception:
                 archive_path.unlink(missing_ok=True)
                 raise
@@ -1100,6 +1147,8 @@ class ModManager:
                     member for member in members if str(member.get("target") or member["name"]) not in present
                 ]
                 if missing:
+                    for member in missing:
+                        member.pop("preexisting", None)
                     with zipfile.ZipFile(archive) as package:
                         for member in missing:
                             destination = self._member_path(member, target_dir)
