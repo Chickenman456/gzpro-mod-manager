@@ -1095,8 +1095,8 @@ def schedule_self_update(release: dict[str, object]) -> None:
             "$ErrorActionPreference = 'Stop'\n"
             f"$target = {quote(current_exe)}\n"
             f"$source = {quote(downloaded)}\n"
-            f"$processId = {os.getpid()}\n"
-            "while (Get-Process -Id $processId -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }\n"
+            f"$managerProcessId = {os.getpid()}\n"
+            "while (Get-Process -Id $managerProcessId -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 1 }\n"
             "Copy-Item -LiteralPath $source -Destination $target -Force\n"
             "Start-Process -FilePath $target\n"
             "Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue\n"
@@ -1326,11 +1326,12 @@ def main() -> int:
     address = f"http://127.0.0.1:{server.server_port}/"
     print(f"GZPro Mod Manager v{APP_VERSION} is running at {address}", flush=True)
     print("Close the app window to stop the manager.", flush=True)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
     try:
         if not args.no_browser:
             try:
                 import webview
-                threading.Thread(target=server.serve_forever, daemon=True).start()
                 webview.create_window(
                     f"GZPro Mod Manager v{APP_VERSION}", address,
                     width=1180, height=850, min_size=(760, 600),
@@ -1339,9 +1340,8 @@ def main() -> int:
                 return 0
             except Exception as error:
                 print(f"Desktop window unavailable ({error}); opening the browser instead.", flush=True)
-        if not args.no_browser:
-            webbrowser.open(address)
-        server.serve_forever()
+                webbrowser.open(address)
+        server_thread.join()
     except KeyboardInterrupt:
         print("\nStopping GZPro Mod Manager.")
     finally:
