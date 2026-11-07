@@ -1452,11 +1452,18 @@ class DesktopWindowApi:
             hwnd = int(handle.ToInt64()) if hasattr(handle, "ToInt64") else int(handle)
             user32 = ctypes.windll.user32
             get_style = user32.GetWindowLongPtrW
+            get_style.argtypes = [ctypes.c_void_p, ctypes.c_int]
             get_style.restype = ctypes.c_ssize_t
+            set_style = user32.SetWindowLongPtrW
+            set_style.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
+            set_style.restype = ctypes.c_ssize_t
+            set_pos = user32.SetWindowPos
+            set_pos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint]
+            set_pos.restype = ctypes.c_int
             style = get_style(hwnd, -16)
             style |= 0x00040000 | 0x00020000 | 0x00010000 | 0x00080000
-            user32.SetWindowLongPtrW(hwnd, -16, style)
-            user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0027)
+            set_style(hwnd, -16, style)
+            set_pos(hwnd, None, 0, 0, 0, 0, 0x0037)
         except Exception:
             pass
 
