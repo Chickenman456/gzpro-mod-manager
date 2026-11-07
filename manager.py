@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.10.1"
+APP_VERSION = "1.11.0"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -321,7 +321,11 @@ class ModManager:
                     or member["size"] < 0
                     or (
                         member["size"] == 0
-                        and member.get("target") != "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/enabled.txt"
+                        and not (
+                            isinstance(member.get("target"), str)
+                            and member["target"].casefold().startswith("gzpro/binaries/win64/ue4ss/mods/")
+                            and member["target"].casefold().endswith("/enabled.txt")
+                        )
                     )
                 ):
                     raise StateError(
@@ -331,14 +335,16 @@ class ModManager:
                     _safe_member_name(member["name"])
                     continue
                 target = member["target"]
-                skin_target = target.startswith("GZPro/Content/Paks/~mods/") if isinstance(target, str) else False
+                skin_target = target.casefold().startswith("gzpro/content/paks/~mods/") if isinstance(target, str) else False
                 loader_target = target in {
                     "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/Scripts/main.lua",
                     "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/enabled.txt",
                 } if isinstance(target, str) else False
+                proxy_target = isinstance(target, str) and target.casefold() == "gzpro/binaries/win64/dwmapi.dll"
+                ue4ss_runtime_target = isinstance(target, str) and target.casefold().startswith("gzpro/binaries/win64/ue4ss/")
                 if (
                     not isinstance(target, str)
-                    or not (skin_target or loader_target)
+                    or not (skin_target or loader_target or proxy_target or ue4ss_runtime_target)
                     or "\\" in target
                     or any(part in {"", ".", ".."} for part in target.split("/"))
                     or Path(target).name != member["name"]
@@ -348,7 +354,7 @@ class ModManager:
                     if Path(member["name"]).suffix.casefold() not in MOD_MEMBER_SUFFIXES:
                         raise StateError("The mod recovery manifest contains an invalid skin file.")
                     _safe_mod_stem(Path(member["name"]).stem)
-                elif Path(member["name"]).suffix.casefold() not in {".lua", ".txt"}:
+                elif not (loader_target or proxy_target or ue4ss_runtime_target):
                     raise StateError("The mod recovery manifest contains an invalid loader file.")
         return mods
 
@@ -620,6 +626,7 @@ class ModManager:
     def _read_package_members(
         self, archive: Path
     ) -> tuple[str, list[dict[str, object]], str, str | None]:
+        """Read cooked mods, skin-loader packages, and game-root UE4SS layouts."""
         try:
             with zipfile.ZipFile(archive) as package:
                 infos = [info for info in package.infolist() if not info.is_dir()]
@@ -661,9 +668,9 @@ class ModManager:
                     with package.open(thumb) as stream:
                         image_bytes = stream.read(MAX_THUMBNAIL_SIZE + 1)
                     signatures = (
-                        (".png", b"\x89PNG\r\n\x1a\n", "image/png"),
-                        (".jpg", b"\xff\xd8\xff", "image/jpeg"),
-                        (".jpeg", b"\xff\xd8\xff", "image/jpeg"),
+                        (".png", b"\\x89PNG\\r\\n\\x1a\\n", "image/png"),
+                        (".jpg", b"\\xff\\xd8\\xff", "image/jpeg"),
+                        (".jpeg", b"\\xff\\xd8\\xff", "image/jpeg"),
                         (".webp", b"RIFF", "image/webp"),
                     )
                     suffix = Path(_root_package_name(thumb.filename) or "").suffix.casefold()
@@ -683,8 +690,6 @@ class ModManager:
                 if not cooked_infos:
                     raise ManagerError("The package contains no supported mod files.")
 
-                # Combined skin packages may contain a single skin-data folder and
-                # the GZSkinLoader script tree. All other folder layouts are rejected.
                 normalized = []
                 for info in cooked_infos:
                     name = info.filename.replace(chr(92), "/")
@@ -693,15 +698,30 @@ class ModManager:
                     if not name or name.startswith("/") or any(part in {"", ".", ".."} for part in name.split("/")):
                         raise ManagerError(f"Unsafe path in the package: {info.filename}")
                     normalized.append((info, name))
-                has_loader = any(name.startswith("GZSkinLoader/") for _, name in normalized)
+
+                has_skin_loader = any(name.casefold().startswith("gzskinloader/") for _, name in normalized)
                 skin_infos = []
                 loader_infos = []
+                runtime_infos = []
                 for info, name in normalized:
                     parts = name.split("/")
+                    folded = name.casefold()
                     if len(parts) == 1 and Path(name).suffix.casefold() in MOD_MEMBER_SUFFIXES:
                         skin_infos.append((info, name, None))
                     elif len(parts) == 2 and Path(parts[1]).suffix.casefold() in MOD_MEMBER_SUFFIXES:
                         skin_infos.append((info, name, parts[0]))
+                    elif folded == "gzpro/binaries/win64/dwmapi.dll":
+                        runtime_infos.append((info, name, "GZPro/Binaries/Win64/dwmapi.dll"))
+                    elif folded.startswith("gzpro/binaries/win64/ue4ss/"):
+                        relative = name[len("GZPro/Binaries/Win64/ue4ss/"):]
+                        if not relative or any(part in {"", ".", ".."} for part in relative.split("/")):
+                            raise ManagerError(f"Unsafe UE4SS file path in the package: {name}")
+                        runtime_infos.append((info, name, "GZPro/Binaries/Win64/ue4ss/" + relative))
+                    elif folded.startswith("gzpro/content/paks/~mods/"):
+                        relative = name[len("GZPro/Content/Paks/~mods/"):]
+                        if "/" in relative or Path(relative).suffix.casefold() not in MOD_MEMBER_SUFFIXES:
+                            raise ManagerError(f"Unsupported game Paks path in the package: {name}")
+                        skin_infos.append((info, name, None))
                     elif (
                         len(parts) == 3
                         and parts[0].casefold() == "gzskinloader"
@@ -715,12 +735,11 @@ class ModManager:
                         loader_infos.append((info, name))
                     else:
                         raise ManagerError(f"Unsupported file or folder in the package: {name}")
-                if has_loader and not loader_infos:
-                    raise ManagerError("GZSkinLoader must include Scripts/main.lua or enabled.txt.")
-                if has_loader and not any(name.casefold() == "gzskinloader/scripts/main.lua" for _, name in loader_infos):
+
+                if has_skin_loader and not any(name.casefold() == "gzskinloader/scripts/main.lua" for _, name in loader_infos):
                     raise ManagerError("GZSkinLoader must include Scripts/main.lua.")
 
-                composite_package = has_loader or any(folder is not None for _, _, folder in skin_infos)
+                composite_package = has_skin_loader or bool(runtime_infos) or any(folder is not None for _, _, folder in skin_infos)
                 skin_stem = None
                 suffixes: set[str] = set()
                 members: list[dict[str, object]] = []
@@ -728,7 +747,7 @@ class ModManager:
 
                 def add_member(info, entry, deployed_name, target=None):
                     nonlocal total_size
-                    is_empty_loader_flag = entry.casefold() == "gzskinloader/enabled.txt"
+                    is_empty_loader_flag = entry.casefold().endswith("/enabled.txt") or entry.casefold() == "gzskinloader/enabled.txt"
                     if info.file_size <= 0 and not is_empty_loader_flag:
                         raise ManagerError(f"{entry} in the package is empty.")
                     if info.file_size > MAX_MOD_SIZE:
@@ -756,35 +775,58 @@ class ModManager:
                         raise ManagerError("The skin container files must match their containing folder name.")
                     if skin_stem is None:
                         skin_stem = current_stem
-                    elif current_stem != skin_stem:
+                    elif current_stem.casefold() != skin_stem.casefold():
                         raise ManagerError("Every skin container file must use the same mod name.")
                     if suffix in suffixes:
                         raise ManagerError(f"The package contains more than one {suffix} file.")
                     suffixes.add(suffix)
-                    add_member(
-                        info, entry, skin_stem + suffix,
-                        f"GZPro/Content/Paks/~mods/{skin_stem}{suffix}" if composite_package else None,
+                    target = (
+                        f"GZPro/Content/Paks/~mods/{skin_stem}{suffix}"
+                        if composite_package else None
                     )
-                if not REQUIRED_MEMBER_SUFFIXES.issubset(suffixes):
+                    add_member(info, entry, skin_stem + suffix, target)
+
+                if skin_infos and not REQUIRED_MEMBER_SUFFIXES.issubset(suffixes):
                     raise ManagerError("The package must contain the cooked mod's .utoc and .ucas files.")
-                if ".pak" not in suffixes:
+                if has_skin_loader and not skin_infos:
+                    raise ManagerError("A GZSkinLoader package must also include its matching cooked .utoc and .ucas files.")
+                if not skin_infos and not loader_infos and not runtime_infos:
+                    raise ManagerError("The package contains no supported mod files.")
+
+                if skin_stem and ".pak" not in suffixes:
                     stub_member = {
                         "entry": None, "suffix": ".pak",
-                        "name": (skin_stem or "GZSkin") + ".pak",
+                        "name": skin_stem + ".pak",
                         "sha256": hashlib.sha256(_STUB_PAK).hexdigest(),
                         "size": len(_STUB_PAK), "stub": True,
                     }
                     if composite_package:
                         stub_member["target"] = f"GZPro/Content/Paks/~mods/{skin_stem}.pak"
                     members.append(stub_member)
+
                 for info, entry in loader_infos:
                     relative = entry.split("/", 1)[1]
                     target = "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/" + relative
                     add_member(info, entry, Path(relative).name, target)
 
-                stem = skin_stem or "GZSkinLoader"
-                if not skin_stem:
-                    raise ManagerError("The package must include the skin's .utoc and .ucas files.")
+                for info, entry, target in runtime_infos:
+                    add_member(info, entry, Path(entry).name, target)
+
+                stem = skin_stem
+                if not stem:
+                    mod_folder = next(
+                        (
+                            name.split("/")[4]
+                            for _, name, _ in runtime_infos
+                            if name.casefold().startswith("gzpro/binaries/win64/ue4ss/mods/")
+                            and len(name.split("/")) > 5
+                        ),
+                        None,
+                    )
+                    stem = mod_folder or Path(archive.name).stem
+                stem = _safe_mod_stem(stem)
+                if not members:
+                    raise ManagerError("The package contains no installable mod files.")
                 return stem, members, description, thumbnail
         except zipfile.BadZipFile as error:
             raise ManagerError("The uploaded file is not a valid .zip package.") from error
@@ -826,7 +868,7 @@ class ModManager:
         for member in members:
             destination = self._member_path(member, target_dir)
             if self._existing_named_file(destination.parent, destination.name) is not None:
-                raise ConflictError(f"{destination.name} already exists in {destination.parent}; it was not overwritten.")
+                raise ConflictError(f"{destination.name} already exists in {destination.parent}; it was not overwritten. If this is an existing UE4SS install, do not replace its loader files.")
         with zipfile.ZipFile(archive) as package:
             for member in members:
                 destination = self._member_path(member, target_dir)
@@ -1082,7 +1124,8 @@ class ModManager:
                 for member in members:
                     installed = present.get(str(member.get("target") or member["name"]))
                     if installed is not None:
-                        installed.unlink()
+                        if not member.get("preexisting"):
+                            installed.unlink()
                 record["enabled"] = False
 
             self._write_manifest(mods)
@@ -1127,7 +1170,8 @@ class ModManager:
                         f"{installed.name} was changed outside the manager. "
                         "It was left untouched, and the mod was not deleted."
                     )
-                installed_files.append(installed)
+                if not member.get("preexisting"):
+                    installed_files.append(installed)
 
             for installed in installed_files:
                 installed.unlink()
@@ -1169,6 +1213,11 @@ class ModManager:
                 archive.is_file() and archive.stat().st_size == record["size"]
             ),
             "file_count": len(members),
+            "requires_ue4ss": any(
+                str(member.get("target", "")).casefold() == "gzpro/binaries/win64/dwmapi.dll"
+                or str(member.get("target", "")).casefold().startswith("gzpro/binaries/win64/ue4ss/")
+                for member in members
+            ),
             "conflict": conflict,
             "partial": 0 < installed_count < len(members),
         }
