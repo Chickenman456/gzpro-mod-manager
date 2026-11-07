@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  font-family: Arial, "Yu Gothic UI", sans-serif;
+  font-family: "Noto Sans", Arial, "Yu Gothic UI", sans-serif;
   background: #13191b;
   color: #eef0f6;
   font-synthesis: none;
@@ -177,11 +177,13 @@ footer strong { color: #cbd2df; }
 
 /* Godzilla Remastered font lineup */
 .product-subtitle { margin: .35rem 0 0; color: #b7c1d2; font: 600 .78rem "Saira Extra Condensed", sans-serif; letter-spacing: .07em; text-transform: uppercase; }
-h1, h2, h3 { font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif; }
-.version-label { font-family: "Arial Narrow", "Franklin Gothic Medium", sans-serif; font-weight: 700; }
-.mod-info, .mod-description, .notice p, .package-guide, .path-form, .empty-state { font-family: Arial, "Yu Gothic UI", sans-serif; }
-.button, .tab-button, .local-badge, .eyebrow, .product-subtitle { font-family: "Arial Narrow", "Franklin Gothic Medium", sans-serif; }
-:lang(ja), [lang="ja"] { font-family: "Yu Gothic UI", Meiryo, sans-serif; }
+h1 { font-family: "Anton", Impact, sans-serif; }
+h2 { font-family: "Fjalla One", "Anton", sans-serif; }
+h3 { font-family: "Special Gothic Expanded One", "Anton", sans-serif; }
+.version-label { font-family: "Fugaz One", Impact, sans-serif; }
+.mod-info, .mod-description, .notice p, .package-guide, .path-form, .empty-state { font-family: "Noto Sans", Arial, sans-serif; }
+.button, .tab-button, .local-badge, .eyebrow, .product-subtitle { font-family: "Saira Extra Condensed", "Barlow Condensed", Impact, sans-serif; }
+:lang(ja), [lang="ja"] { font-family: "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif; }
 
 .profile-panel { margin-top: 1rem; }
 .profile-form, .profile-actions { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .6rem; margin-top: .65rem; }
