@@ -781,13 +781,23 @@ class ModManager:
                     folder is not None or entry.casefold().startswith("gzpro/content/paks/~mods/")
                     for _, entry, folder in skin_infos
                 )
-                utoc_entry = next(
-                    (entry for _, entry, _ in skin_infos if Path(entry).suffix.casefold() == ".utoc"),
-                    None,
-                )
-                skin_stem = _safe_mod_stem(Path(utoc_entry).stem) if utoc_entry else None
-                skin_folder = None
-                suffixes: set[str] = set()
+                container_groups: dict[str, dict[str, object]] = {}
+                for info, entry, folder in skin_infos:
+                    suffix = Path(entry).suffix.casefold()
+                    if suffix not in MOD_MEMBER_SUFFIXES:
+                        raise ManagerError(f"Unsupported file in the package: {entry}")
+                    current_stem = _safe_mod_stem(Path(entry).stem)
+                    key = current_stem.casefold()
+                    group = container_groups.setdefault(key, {"stem": current_stem, "folder": folder, "files": {}})
+                    if folder and group["folder"] and folder.casefold() != str(group["folder"]).casefold():
+                        raise ManagerError("The same container name cannot appear in different mod folders.")
+                    if folder and not group["folder"]:
+                        group["folder"] = folder
+                    files = group["files"]
+                    if suffix in files:
+                        raise ManagerError(f"The package contains more than one {suffix} file for {current_stem}.")
+                    files[suffix] = (info, entry)
+
                 members: list[dict[str, object]] = []
                 total_size = 0
 
@@ -810,52 +820,38 @@ class ModManager:
                         item["target"] = target
                     members.append(item)
 
-                for info, entry, folder in skin_infos:
-                    suffix = Path(entry).suffix.casefold()
-                    if suffix not in MOD_MEMBER_SUFFIXES:
-                        raise ManagerError(f"Unsupported file in the package: {entry}")
-                    current_stem = _safe_mod_stem(Path(entry).stem)
-                    if folder:
-                        if skin_folder is None:
-                            skin_folder = folder
-                        elif folder.casefold() != skin_folder.casefold():
-                            raise ManagerError("The skin container files must be in the same mod folder.")
-                    if skin_stem is None:
-                        skin_stem = current_stem
-
-                    if suffix in suffixes:
-                        raise ManagerError(f"The package contains more than one {suffix} file.")
-                    suffixes.add(suffix)
-                    target = (
-                        f"GZPro/Content/Paks/~mods/{skin_stem}{suffix}"
-                        if composite_package else None
-                    )
-                    add_member(info, entry, skin_stem + suffix, target)
-
-                if skin_stem:
-                    allowed_folder_names = {skin_stem.casefold(), (skin_stem + "_P").casefold()}
-                    if skin_stem.casefold().endswith("_p"):
-                        allowed_folder_names.add(skin_stem[:-2].casefold())
-                    if skin_folder and skin_folder.casefold() not in allowed_folder_names:
-                        raise ManagerError("The skin container folder must match the .utoc mod name.")
-                if skin_infos and not REQUIRED_MEMBER_SUFFIXES.issubset(suffixes):
-                    raise ManagerError("The package must contain the cooked mod's .utoc and .ucas files.")
                 if has_skin_loader and not skin_infos:
                     raise ManagerError("A GZSkinLoader package must also include its matching cooked .utoc and .ucas files.")
                 if not skin_infos and not loader_infos and not runtime_infos:
                     raise ManagerError("The package contains no supported mod files.")
 
-                if skin_stem and ".pak" not in suffixes:
-                    stub_member = {
-                        "entry": None, "suffix": ".pak",
-                        "name": skin_stem + ".pak",
-                        "sha256": hashlib.sha256(_STUB_PAK).hexdigest(),
-                        "size": len(_STUB_PAK), "stub": True,
-                    }
-                    if composite_package:
-                        stub_member["target"] = f"GZPro/Content/Paks/~mods/{skin_stem}.pak"
-                    members.append(stub_member)
+                for group in container_groups.values():
+                    current_stem = str(group["stem"])
+                    files = group["files"]
+                    if not REQUIRED_MEMBER_SUFFIXES.issubset(files):
+                        raise ManagerError(f"{current_stem} must include matching .utoc and .ucas files.")
+                    folder = group["folder"]
+                    if folder:
+                        allowed_folder_names = {current_stem.casefold(), (current_stem + "_P").casefold()}
+                        if current_stem.casefold().endswith("_p"):
+                            allowed_folder_names.add(current_stem[:-2].casefold())
+                        if str(folder).casefold() not in allowed_folder_names:
+                            raise ManagerError(f"The {current_stem} container folder must match its .utoc mod name.")
+                    for suffix in (".utoc", ".ucas", ".pak"):
+                        if suffix in files:
+                            info, entry = files[suffix]
+                            target = f"GZPro/Content/Paks/~mods/{current_stem}{suffix}" if composite_package else None
+                            add_member(info, entry, current_stem + suffix, target)
+                    if ".pak" not in files:
+                        stub_member = {
+                            "entry": None, "suffix": ".pak", "name": current_stem + ".pak",
+                            "sha256": hashlib.sha256(_STUB_PAK).hexdigest(), "size": len(_STUB_PAK), "stub": True,
+                        }
+                        if composite_package:
+                            stub_member["target"] = f"GZPro/Content/Paks/~mods/{current_stem}.pak"
+                        members.append(stub_member)
 
+                skin_stem = next((str(group["stem"]) for group in container_groups.values()), None)
                 for info, entry in loader_infos:
                     relative = entry.split("/", 1)[1]
                     target = "GZPro/Binaries/Win64/ue4ss/Mods/GZSkinLoader/" + relative
