@@ -172,3 +172,6 @@ body:has(.desktop-titlebar:not([hidden])) .topbar { padding-top: 1rem; }
 .update-spinner { display: inline-block; width: 22px; height: 22px; flex: 0 0 22px; border: 3px solid #465466; border-top-color: #76c9f4; border-radius: 50%; animation: update-spin .75s linear infinite; }
 .update-spinner[hidden] { display: none; }
 @keyframes update-spin { to { transform: rotate(360deg); } }
+
+body:has(.desktop-titlebar:not([hidden])) { min-height: 100vh; border: 1px solid #303744; }
+.desktop-titlebar { box-shadow: 0 1px 0 #0d1015; }
