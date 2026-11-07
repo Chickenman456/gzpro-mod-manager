@@ -33,7 +33,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.11.1"
+APP_VERSION = "1.11.2"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -135,7 +135,7 @@ def _is_package_document(name: str) -> bool:
     if Path(name).name != name or "/" in name or chr(92) in name:
         return False
     return re.fullmatch(
-        r"(?:readme|install(?:ation)?|license|licence|changelog|changes|notice|credits)(?:\.[^.]+)?",
+        r"(?:read[ _-]?me|install(?:ation)?|license|licence|changelog|changes|notice|credits)(?:\.[^.]+)?",
         name,
         flags=re.IGNORECASE,
     ) is not None
@@ -629,7 +629,7 @@ class ModManager:
             temporary.unlink(missing_ok=True)
 
     def _read_package_members(
-        self, archive: Path
+        self, archive: Path, skip_unsupported: bool = False
     ) -> tuple[str, list[dict[str, object]], str, str | None]:
         """Read cooked mods, skin-loader packages, and game-root UE4SS layouts."""
         try:
@@ -738,6 +738,8 @@ class ModManager:
                         and parts[1].casefold() == "enabled.txt"
                     ):
                         loader_infos.append((info, name))
+                    elif skip_unsupported:
+                        continue
                     else:
                         raise ManagerError(f"Unsupported file or folder in the package: {name}")
 
@@ -749,6 +751,7 @@ class ModManager:
                     for _, entry, folder in skin_infos
                 )
                 skin_stem = None
+                skin_folder = None
                 suffixes: set[str] = set()
                 members: list[dict[str, object]] = []
                 total_size = 0
@@ -777,14 +780,14 @@ class ModManager:
                     if suffix not in MOD_MEMBER_SUFFIXES:
                         raise ManagerError(f"Unsupported file in the package: {entry}")
                     current_stem = _safe_mod_stem(Path(entry).stem)
-                    if folder and current_stem.casefold() not in {
-                        folder.casefold(), (folder + "_P").casefold()
-                    }:
-                        raise ManagerError("The skin container files must match their containing folder name.")
-                    if skin_stem is None:
+                    if folder:
+                        if skin_folder is None:
+                            skin_folder = folder
+                        elif folder.casefold() != skin_folder.casefold():
+                            raise ManagerError("The skin container files must be in the same mod folder.")
+                    if skin_stem is None or suffix == ".utoc":
                         skin_stem = current_stem
-                    elif current_stem.casefold() != skin_stem.casefold():
-                        raise ManagerError("Every skin container file must use the same mod name.")
+
                     if suffix in suffixes:
                         raise ManagerError(f"The package contains more than one {suffix} file.")
                     suffixes.add(suffix)
@@ -794,6 +797,10 @@ class ModManager:
                     )
                     add_member(info, entry, skin_stem + suffix, target)
 
+                if skin_folder and skin_stem and skin_folder.casefold() not in {
+                    skin_stem.casefold(), (skin_stem + "_P").casefold()
+                }:
+                    raise ManagerError("The skin container folder must match the .utoc mod name.")
                 if skin_infos and not REQUIRED_MEMBER_SUFFIXES.issubset(suffixes):
                     raise ManagerError("The package must contain the cooked mod's .utoc and .ucas files.")
                 if has_skin_loader and not skin_infos:
@@ -921,6 +928,7 @@ class ModManager:
         expected_size: int,
         kind: str = MOD_KIND_OVERRIDE,
         replace_mod_id: str | None = None,
+        skip_unsupported: bool = False,
     ) -> dict[str, object]:
         filename = _safe_mod_filename(filename)
         if kind not in MOD_KINDS:
@@ -954,7 +962,7 @@ class ModManager:
                     os.fsync(output_stream.fileno())
                 staged_archive.rename(archive_path)
 
-                stem, members, description, thumbnail = self._read_package_members(archive_path)
+                stem, members, description, thumbnail = self._read_package_members(archive_path, skip_unsupported=skip_unsupported)
                 if kind == MOD_KIND_OVERRIDE and stem.casefold() in GAME_CONTAINER_STEMS:
                     raise ManagerError(
                         f"The mod name {stem} is reserved by the game itself."
@@ -1868,7 +1876,10 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
         kind = unquote(self.headers.get("X-Mod-Kind", MOD_KIND_OVERRIDE))
         replace_mod_id = self.headers.get("X-Replace-Mod-Id")
         try:
-            result = self.manager.install_mod(self.rfile, filename, length, kind, replace_mod_id)
+            skip_unsupported = self.headers.get("X-Skip-Unsupported", "").strip().casefold() == "true"
+            result = self.manager.install_mod(
+                self.rfile, filename, length, kind, replace_mod_id, skip_unsupported
+            )
         except ManagerError:
             self.close_connection = True
             raise
