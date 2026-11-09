@@ -998,3 +998,22 @@ class DesktopWindowApiTests(unittest.TestCase):
         # pywebview walks every public attribute on page load (on the GUI thread);
         # exposing the Window object froze the app for about a minute.
         self.assertEqual(public, ["close", "minimize", "open_nexus", "toggle_maximize"])
+
+
+class VersionEndpointTests(unittest.TestCase):
+    def test_version_endpoint_and_page_label_are_not_hardcoded(self) -> None:
+        import manager as manager_module
+
+        with tempfile.TemporaryDirectory() as directory:
+            manager = ModManager(game_dir=Path(directory) / "game", state_base=Path(directory) / "state")
+            server = create_server(manager, 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with urlopen(f"http://127.0.0.1:{server.server_port}/api/version") as response:
+                    self.assertEqual(json.loads(response.read())["version"], manager_module.APP_VERSION)
+            finally:
+                server.shutdown()
+                server.server_close()
+        page = (manager_module.WEB_DIRECTORY / "index.html").read_text(encoding="utf-8")
+        self.assertNotRegex(page, r"v\d+\.\d+\.\d+")

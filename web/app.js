@@ -640,4 +640,14 @@ window.addEventListener("drop", (event) => {
   importFile(event.dataTransfer.files[0]);
 });
 
+async function showVersion() {
+  try {
+    const { version } = await requestJson("/api/version", { timeoutMs: 5000 });
+    byId("version-label").textContent = `v${version}`;
+  } catch (_) {
+    // The window title still shows the version if this request fails.
+  }
+}
+
+showVersion();
 refreshStatus();

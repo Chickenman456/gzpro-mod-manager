@@ -34,7 +34,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.12.11"
+APP_VERSION = "1.12.12"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -2063,6 +2063,9 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json(get_latest_release())
             except ManagerError as error:
                 self._send_manager_error(error)
+            return
+        if self.path == "/api/version":
+            self._send_json({"version": APP_VERSION, "channel": _distribution_channel()})
             return
         if self.path == "/api/status/progress":
             self._send_json(_get_status_progress())
