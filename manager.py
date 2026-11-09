@@ -1416,22 +1416,52 @@ class ModManager:
             archive.unlink(missing_ok=True)
             return {"deleted": True, "stem": record["stem"]}
 
+    @staticmethod
+    def _directory_sizes(
+        directory: Path, cache: dict[str, dict[str, int | None]]
+    ) -> dict[str, int | None]:
+        """Map casefolded names in a directory to file sizes, listing it only once.
+
+        On Windows, DirEntry.stat() reuses the data from the directory listing,
+        so this avoids one listing plus one stat call per mod file.
+        """
+        key = os.path.normcase(str(directory))
+        listing = cache.get(key)
+        if listing is None:
+            listing = {}
+            try:
+                with os.scandir(directory) as entries:
+                    for entry in entries:
+                        try:
+                            size = entry.stat().st_size
+                        except OSError:
+                            size = None
+                        listing[entry.name.casefold()] = size
+            except OSError:
+                pass
+            cache[key] = listing
+        return listing
+
     def _describe_mod(
         self,
         record: dict[str, object],
         archive: Path,
+        listings: dict[str, dict[str, int | None]] | None = None,
     ) -> dict[str, object]:
         members = record["members"]
         target_dir = self._mod_target_dir(record)
         installed_count = 0
         conflict = False
+        if listings is None:
+            listings = {}
         for member in members:
             destination = self._member_path(member, target_dir)
-            installed = self._existing_named_file(destination.parent, destination.name)
-            if installed is None:
+            listing = self._directory_sizes(destination.parent, listings)
+            wanted = destination.name.casefold()
+            if wanted not in listing:
                 continue
             installed_count += 1
-            if installed.stat().st_size != member["size"]:
+            if listing[wanted] != member["size"]:
                 conflict = True
         return {
             "id": record["id"],
@@ -1657,12 +1687,13 @@ class ModManager:
                 listed_mods = []
                 managed_names: set[str] = set()
                 total_mods = len(mods)
+                listings: dict[str, dict[str, int | None]] = {}
                 for index, record in enumerate(mods, start=1):
                     _set_status_progress(f"Checking installed files for mod {index} of {total_mods}…")
                     for member in record["members"]:
                         managed_names.add(str(member["name"]).casefold())
                     listed_mods.append(
-                        self._describe_mod(record, self._archive_path(record))
+                        self._describe_mod(record, self._archive_path(record), listings)
                     )
 
                 cache_signature = self._unmanaged_cache_signature()
@@ -2192,11 +2223,18 @@ def create_server(manager: ModManager, port: int = 8766) -> ThreadingHTTPServer:
 
 
 class DesktopWindowApi:
-    """Native window controls exposed to the custom Steam-style title bar."""
+    """Native window controls exposed to the custom Steam-style title bar.
+
+    pywebview exposes every public attribute to JavaScript and walks it
+    recursively on page load, on the GUI thread. Keep the window and module
+    references private (underscore) so only the four control methods are
+    exposed; a public Window attribute made that walk take about a minute and
+    left the app "Not Responding" during startup.
+    """
 
     def __init__(self) -> None:
-        self.window = None
-        self.webview_module = None
+        self._window = None
+        self._webview_module = None
         self._maximized = False
 
     def open_nexus(self, url: str) -> bool:
@@ -2208,32 +2246,32 @@ class DesktopWindowApi:
                 or parsed.hostname not in {"www.nexusmods.com", "nexusmods.com"}
                 or not parsed.path.startswith("/godzilladestroyallmonstersmeleeremastered/")):
             return False
-        if self.webview_module is None:
+        if self._webview_module is None:
             webbrowser.open(url)
             return True
-        self.webview_module.create_window(
+        self._webview_module.create_window(
             "Nexus Mods — Godzilla Remastered", url,
             width=1180, height=850, min_size=(760, 600), resizable=True,
         )
         return True
 
     def minimize(self) -> None:
-        if self.window:
-            self.window.minimize()
+        if self._window:
+            self._window.minimize()
 
     def toggle_maximize(self) -> bool:
-        if not self.window:
+        if not self._window:
             return False
         if self._maximized:
-            self.window.restore()
+            self._window.restore()
         else:
-            self.window.maximize()
+            self._window.maximize()
         self._maximized = not self._maximized
         return self._maximized
 
     def close(self) -> None:
-        if self.window:
-            self.window.destroy()
+        if self._window:
+            self._window.destroy()
 
 
 def main() -> int:
@@ -2277,14 +2315,14 @@ def main() -> int:
             try:
                 import webview
                 api = DesktopWindowApi()
-                api.webview_module = webview
+                api._webview_module = webview
                 window = webview.create_window(
                     f"GZPro Mod Manager v{APP_VERSION}", address + "?desktop=1",
                     width=1180, height=850, min_size=(760, 600), resizable=True,
                     frameless=False, js_api=api,
                     background_color="#13191b", shadow=True,
                 )
-                api.window = window
+                api._window = window
                 _APP_EXIT_CALLBACK = window.destroy
                 window.events.shown += lambda: _signal_update_ready(args.update_ready_file)
                 webview.start(icon=str(APP_ICON_PATH) if APP_ICON_PATH.is_file() else None)

@@ -985,3 +985,16 @@ class DistributionChannelTests(unittest.TestCase):
             (Path(directory) / "distribution.json").write_text('{"channel": "other"}', encoding="utf-8")
             with patch.object(manager_module, "APP_RESOURCE_DIR", Path(directory)):
                 self.assertEqual(manager_module._distribution_channel(), "github")
+
+
+class DesktopWindowApiTests(unittest.TestCase):
+    def test_only_window_controls_are_exposed_to_javascript(self) -> None:
+        import manager as manager_module
+
+        api = manager_module.DesktopWindowApi()
+        api._window = object()
+        api._webview_module = object()
+        public = sorted(name for name in dir(api) if not name.startswith("_"))
+        # pywebview walks every public attribute on page load (on the GUI thread);
+        # exposing the Window object froze the app for about a minute.
+        self.assertEqual(public, ["close", "minimize", "open_nexus", "toggle_maximize"])
