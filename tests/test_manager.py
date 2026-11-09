@@ -842,3 +842,119 @@ class ModManagerHttpTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StartupHangTests(unittest.TestCase):
+    """Regression tests for the launcher freezing during its startup status check."""
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        root = Path(self.temporary.name)
+        game_dir = root / "game"
+        (game_dir / "GZPro" / "Content" / "Paks").mkdir(parents=True)
+        executable = game_dir / "GZPro" / "Binaries" / "Win64" / "GZProSteam-Win64-Shipping.exe"
+        executable.parent.mkdir(parents=True)
+        executable.write_bytes(b"test executable")
+        self.manager = ModManager(game_dir=game_dir, state_base=root / "state")
+        self.manager._is_game_running = lambda: False
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_status_reports_busy_instead_of_waiting_forever_on_a_stuck_lock(self) -> None:
+        from unittest.mock import patch
+        import manager as manager_module
+
+        holder_ready = threading.Event()
+        release = threading.Event()
+
+        def hold_lock() -> None:
+            with self.manager._lock:
+                holder_ready.set()
+                release.wait(5)
+
+        holder = threading.Thread(target=hold_lock)
+        holder.start()
+        holder_ready.wait(5)
+        try:
+            with patch.object(manager_module, "STATUS_LOCK_TIMEOUT_SECONDS", 0.1):
+                with self.assertRaises(manager_module.BusyError):
+                    self.manager.get_status()
+        finally:
+            release.set()
+            holder.join()
+        self.assertTrue(self.manager.get_status()["game_valid"])
+
+    def test_game_check_falls_back_to_tasklist_when_native_listing_fails(self) -> None:
+        from unittest.mock import patch
+        import manager as manager_module
+
+        def native_fails() -> list[str]:
+            raise OSError("snapshot unavailable")
+
+        del self.manager._is_game_running
+        with patch.object(manager_module.sys, "platform", "win32"), patch.object(
+            manager_module, "_list_process_names_native", native_fails
+        ), patch.object(
+            manager_module, "_list_process_names_tasklist",
+            lambda: ["explorer.exe", "gzprosteam-win64-shipping.EXE"],
+        ):
+            self.assertTrue(self.manager._is_game_running())
+
+    def test_game_check_uses_native_process_list(self) -> None:
+        from unittest.mock import patch
+        import manager as manager_module
+
+        del self.manager._is_game_running
+        with patch.object(manager_module.sys, "platform", "win32"), patch.object(
+            manager_module, "_list_process_names_native", lambda: ["explorer.exe"]
+        ), patch.object(manager_module.subprocess, "Popen") as popen:
+            self.assertFalse(self.manager._is_game_running())
+        popen.assert_not_called()
+
+    @unittest.skipUnless(__import__("sys").platform == "win32", "Windows-only process API")
+    def test_native_process_list_sees_this_python_process(self) -> None:
+        import os
+        import sys
+        import manager as manager_module
+
+        names = {name.casefold() for name in manager_module._list_process_names_native()}
+        self.assertIn(os.path.basename(sys.executable).casefold(), names)
+
+
+class SelfUpdateScriptTests(unittest.TestCase):
+    def build(self) -> str:
+        import manager as manager_module
+
+        return manager_module._build_update_script(
+            Path(r"C:\Users\O'Neil\Apps\GZProModManager.exe"),
+            Path(r"C:\Users\O'Neil\AppData\Local\GZProModManager\updates\new.exe"),
+            Path(r"C:\Users\O'Neil\AppData\Local\GZProModManager\updates\update-install.log"),
+            Path(r"C:\Users\O'Neil\AppData\Local\GZProModManager\updates\ready-1.flag"),
+            4242,
+        )
+
+    def test_waits_for_every_process_running_the_executable(self) -> None:
+        script = self.build()
+        # PyInstaller one-file builds run a bootloader parent that owns the .exe.
+        self.assertIn("$_.Path -eq $target", script)
+        self.assertIn("$managerProcessId = 4242", script)
+        self.assertIn("Move-WithRetry $staged $target", script)
+
+    def test_health_check_uses_ready_file_not_wait_for_input_idle(self) -> None:
+        script = self.build()
+        self.assertNotIn("WaitForInputIdle", script)
+        self.assertIn("--update-ready-file", script)
+        self.assertIn("Test-Path -LiteralPath $readyFile", script)
+
+    def test_paths_with_apostrophes_are_quoted_for_powershell(self) -> None:
+        self.assertIn(r"$target = 'C:\Users\O''Neil\Apps\GZProModManager.exe'", self.build())
+
+    def test_ready_file_is_written(self) -> None:
+        import manager as manager_module
+
+        with tempfile.TemporaryDirectory() as directory:
+            flag = Path(directory) / "nested" / "ready.flag"
+            manager_module._signal_update_ready(flag)
+            self.assertEqual(flag.read_text(encoding="utf-8"), manager_module.APP_VERSION)
+            manager_module._signal_update_ready(None)

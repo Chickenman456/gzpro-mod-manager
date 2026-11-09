@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
 import urllib.error
@@ -33,7 +34,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.12.8"
+APP_VERSION = "1.12.10"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -77,6 +78,90 @@ def _get_status_progress() -> dict[str, object]:
     with STATUS_PROGRESS_LOCK:
         return dict(STATUS_PROGRESS)
 
+
+STATUS_LOCK_TIMEOUT_SECONDS = 20
+
+
+class _PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", ctypes.c_uint32),
+        ("cntUsage", ctypes.c_uint32),
+        ("th32ProcessID", ctypes.c_uint32),
+        ("th32DefaultHeapID", ctypes.c_size_t),
+        ("th32ModuleID", ctypes.c_uint32),
+        ("cntThreads", ctypes.c_uint32),
+        ("th32ParentProcessID", ctypes.c_uint32),
+        ("pcPriClassBase", ctypes.c_long),
+        ("dwFlags", ctypes.c_uint32),
+        ("szExeFile", ctypes.c_wchar * 260),
+    ]
+
+
+def _list_process_names_native() -> list[str]:
+    """List running process image names with the Toolhelp API.
+
+    This replaces tasklist.exe, which can stall for a long time (or never return
+    its output pipe) on some systems and froze the launcher's startup check.
+    """
+    if sys.platform != "win32":
+        raise OSError("Native process listing is available only on Windows.")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_snapshot = kernel32.CreateToolhelp32Snapshot
+    create_snapshot.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+    create_snapshot.restype = ctypes.c_void_p
+    first = kernel32.Process32FirstW
+    first.argtypes = [ctypes.c_void_p, ctypes.POINTER(_PROCESSENTRY32W)]
+    first.restype = ctypes.c_int
+    following = kernel32.Process32NextW
+    following.argtypes = [ctypes.c_void_p, ctypes.POINTER(_PROCESSENTRY32W)]
+    following.restype = ctypes.c_int
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [ctypes.c_void_p]
+    close_handle.restype = ctypes.c_int
+
+    snapshot = create_snapshot(0x00000002, 0)  # TH32CS_SNAPPROCESS
+    if not snapshot or snapshot == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        entry = _PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(_PROCESSENTRY32W)
+        names: list[str] = []
+        if not first(snapshot, ctypes.byref(entry)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        while True:
+            names.append(entry.szExeFile)
+            if not following(snapshot, ctypes.byref(entry)):
+                break
+        return names
+    finally:
+        close_handle(snapshot)
+
+
+def _list_process_names_tasklist() -> list[str]:
+    """Fallback process listing that cannot hang on a never-closed output pipe."""
+    try:
+        with tempfile.TemporaryFile() as output:
+            process = subprocess.Popen(
+                ["tasklist.exe", "/FO", "CSV", "/NH"],
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                raise
+            output.seek(0)
+            text = output.read().decode("utf-8", errors="replace")
+    except (OSError, subprocess.SubprocessError) as error:
+        raise StateError(f"Could not check whether the game is running: {error}") from error
+    try:
+        return [row[0].strip('"') for row in csv.reader(text.splitlines()) if row]
+    except csv.Error as error:
+        raise StateError(f"Could not parse the Windows process list: {error}") from error
+
 # A minimal but valid .pak (486 bytes, produced by UnrealPak 5.8) holding one
 # inert marker file. This game only mounts a .utoc/.ucas IoStore container when
 # a same-named .pak sits next to it; the legacy .pak is parsed but never
@@ -97,6 +182,10 @@ class ConflictError(ManagerError):
 
 class StateError(ManagerError):
     status_code = 500
+
+
+class BusyError(ManagerError):
+    status_code = 503
 
 
 def _default_state_base() -> Path:
@@ -554,33 +643,19 @@ class ModManager:
     def _is_game_running(self) -> bool:
         if sys.platform != "win32":
             raise StateError("Game process detection is supported only on Windows.")
-        with GAME_CHECK_LOCK:
-            try:
-                result = subprocess.run(
-                    [
-                        "tasklist.exe",
-                        "/FI",
-                        f"IMAGENAME eq {GAME_EXECUTABLE.name}",
-                        "/FO",
-                        "CSV",
-                        "/NH",
-                    ],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-            except (OSError, subprocess.SubprocessError) as error:
-                raise StateError(f"Could not check whether the game is running: {error}") from error
+        # Never wait forever for another check: a stuck check used to hold this lock
+        # (and the manager lock) for the rest of the session, freezing the launcher.
+        if not GAME_CHECK_LOCK.acquire(timeout=10):
+            raise StateError("Could not check whether the game is running: another check is still in progress.")
         try:
-            rows = csv.reader(result.stdout.splitlines())
-            return any(
-                row and row[0].strip('"').casefold() == GAME_EXECUTABLE.name.casefold()
-                for row in rows
-            )
-        except csv.Error as error:
-            raise StateError(f"Could not parse the Windows process list: {error}") from error
+            try:
+                names = _list_process_names_native()
+            except OSError:
+                names = _list_process_names_tasklist()
+        finally:
+            GAME_CHECK_LOCK.release()
+        wanted = GAME_EXECUTABLE.name.casefold()
+        return any(name.casefold() == wanted for name in names)
 
     def _require_game_closed(self) -> None:
         if self._is_game_running():
@@ -1557,7 +1632,10 @@ class ModManager:
 
     def get_status(self) -> dict[str, object]:
         _set_status_progress("Waiting for the manager status check…")
-        with self._lock:
+        if not self._lock.acquire(timeout=STATUS_LOCK_TIMEOUT_SECONDS):
+            _set_status_progress("Manager is busy", active=False)
+            raise BusyError("The manager is still finishing another task. Retrying…")
+        try:
             try:
                 _set_status_progress("Checking the game folder and required files…")
                 game_valid = (
@@ -1636,6 +1714,8 @@ class ModManager:
             except Exception:
                 _set_status_progress("Status check failed", active=False)
                 raise
+        finally:
+            self._lock.release()
 
 
 def get_latest_release() -> dict[str, object]:
@@ -1670,6 +1750,131 @@ def get_latest_release() -> dict[str, object]:
         "release_url": release.get("html_url", "https://github.com/Chickenman456/gzpro-mod-manager/releases"),
         "published_at": release.get("published_at", ""),
     }
+
+
+def _ps_quote(value: object) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _build_update_script(
+    current_exe: Path, downloaded: Path, log_file: Path, ready_file: Path, manager_pid: int
+) -> str:
+    """PowerShell that swaps in the new executable after this manager has fully exited.
+
+    The PyInstaller one-file build runs as two processes: a bootloader that owns
+    the .exe file and a child Python process (os.getpid()). The script therefore
+    waits for *every* process running the target .exe, retries the file swap
+    while Windows or antivirus still holds a lock, and treats the update as
+    healthy only when the new version writes the ready file after its window opens.
+    """
+    return (
+        "$ErrorActionPreference = 'Stop'\n"
+        f"$target = {_ps_quote(current_exe)}\n"
+        f"$source = {_ps_quote(downloaded)}\n"
+        f"$logPath = {_ps_quote(log_file)}\n"
+        f"$readyFile = {_ps_quote(ready_file)}\n"
+        f"$managerProcessId = {int(manager_pid)}\n"
+        "$staged = $target + '.update'\n"
+        "$backup = $target + '.previous'\n"
+        "$started = $null\n"
+        "function Write-Log($text) { Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' ' + $text) }\n"
+        "function Get-ManagerProcesses {\n"
+        "  @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Id -eq $managerProcessId -or $_.Path -eq $target })\n"
+        "}\n"
+        "function Wait-ManagerClosed($seconds) {\n"
+        "  $deadline = (Get-Date).AddSeconds($seconds)\n"
+        "  while ((Get-ManagerProcesses).Count -gt 0) {\n"
+        "    if ((Get-Date) -gt $deadline) { throw 'Timed out waiting for the manager to close.' }\n"
+        "    Start-Sleep -Milliseconds 500\n"
+        "  }\n"
+        "}\n"
+        "function Stop-ManagerProcesses {\n"
+        "  Get-ManagerProcesses | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }\n"
+        "  Start-Sleep -Seconds 1\n"
+        "}\n"
+        "function Move-WithRetry($from, $to) {\n"
+        "  $deadline = (Get-Date).AddSeconds(30)\n"
+        "  while ($true) {\n"
+        "    try { Move-Item -LiteralPath $from -Destination $to -Force; return }\n"
+        "    catch {\n"
+        "      if ((Get-Date) -gt $deadline) { throw }\n"
+        "      Start-Sleep -Milliseconds 500\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        "function Start-Manager {\n"
+        "  Remove-Item -LiteralPath $readyFile -Force -ErrorAction SilentlyContinue\n"
+        "  Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target) -ArgumentList ('--update-ready-file \"' + $readyFile + '\"') -PassThru\n"
+        "}\n"
+        "try {\n"
+        "  Write-Log 'Waiting for the manager to close'\n"
+        "  Wait-ManagerClosed 120\n"
+        "  Copy-Item -LiteralPath $source -Destination $staged -Force\n"
+        "  if (!(Test-Path -LiteralPath $staged) -or (Get-Item -LiteralPath $staged).Length -lt 1024) { throw 'The staged update file is missing or incomplete.' }\n"
+        "  $header = ([System.IO.File]::ReadAllBytes($staged))[0..1]\n"
+        "  if ($header[0] -ne 77 -or $header[1] -ne 90) { throw 'The staged update is not a Windows executable.' }\n"
+        "  if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }\n"
+        "  Copy-Item -LiteralPath $target -Destination $backup -Force\n"
+        "  Move-WithRetry $staged $target\n"
+        "  Write-Log 'Replaced executable; starting updated manager'\n"
+        "  $started = Start-Manager\n"
+        "  Write-Log ('Started updated manager process: ' + $started.Id)\n"
+        "  $deadline = (Get-Date).AddSeconds(90)\n"
+        "  while (!(Test-Path -LiteralPath $readyFile)) {\n"
+        "    $started.Refresh()\n"
+        "    if ($started.HasExited) { throw ('Updated manager exited during startup (exit code ' + $started.ExitCode + ').') }\n"
+        "    if ((Get-Date) -gt $deadline) { throw 'Updated manager did not open its window within 90 seconds.' }\n"
+        "    Start-Sleep -Milliseconds 500\n"
+        "  }\n"
+        "  Remove-Item -LiteralPath $readyFile -Force -ErrorAction SilentlyContinue\n"
+        "  Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue\n"
+        "  Write-Log 'Update succeeded; new manager is running'\n"
+        "} catch {\n"
+        "  Write-Log ('UPDATE ERROR: ' + $_.Exception.Message)\n"
+        "  if (Test-Path -LiteralPath $backup) {\n"
+        "    try {\n"
+        "      Stop-ManagerProcesses\n"
+        "      Move-WithRetry $backup $target\n"
+        "      Start-Manager | Out-Null\n"
+        "      Write-Log 'Restored previous manager and restarted it'\n"
+        "    } catch { Write-Log ('ROLLBACK ERROR: ' + $_.Exception.Message) }\n"
+        "  } elseif ((Test-Path -LiteralPath $target) -and (Get-ManagerProcesses).Count -eq 0) {\n"
+        "    Start-Manager | Out-Null\n"
+        "    Write-Log 'Restarted the current manager without updating'\n"
+        "  }\n"
+        "} finally {\n"
+        "  Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue\n"
+        "  Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue\n"
+        "  Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\n"
+        "}\n"
+    )
+
+
+_APP_EXIT_CALLBACK = None
+
+
+def _exit_for_update() -> None:
+    """Close the window cleanly so the updater can replace the executable."""
+    fallback = threading.Timer(10, lambda: os._exit(0))
+    fallback.daemon = True
+    fallback.start()
+    callback = _APP_EXIT_CALLBACK
+    if callback is None:
+        os._exit(0)
+    try:
+        callback()
+    except Exception:
+        os._exit(0)
+
+
+def _signal_update_ready(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(APP_VERSION, encoding="utf-8")
+    except OSError:
+        pass
 
 
 def schedule_self_update(release: dict[str, object]) -> None:
@@ -1716,57 +1921,14 @@ def schedule_self_update(release: dict[str, object]) -> None:
             if digest.hexdigest().casefold() != expected_digest[7:].casefold():
                 raise ManagerError("The downloaded update failed GitHub's SHA-256 integrity check.")
         script = update_dir / f"install-{uuid.uuid4().hex}.ps1"
-        log_file = update_dir / "update-install.log"
-        quote = lambda value: "'" + str(value).replace("'", "''") + "'"
         script.write_text(
-            "$ErrorActionPreference = 'Stop'\n"
-            f"$target = {quote(current_exe)}\n"
-            f"$source = {quote(downloaded)}\n"
-            f"$logPath = {quote(log_file)}\n"
-            f"$managerProcessId = {os.getpid()}\n"
-            "$staged = $target + '.update'\n"
-            "$backup = $target + '.previous'\n"
-            "$started = $null\n"
-            "try {\n"
-            "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Waiting for manager to close')\n"
-            "  $deadline = (Get-Date).AddSeconds(120)\n"
-            "  while (Get-Process -Id $managerProcessId -ErrorAction SilentlyContinue) {\n"
-            "    if ((Get-Date) -gt $deadline) { throw 'Timed out waiting for the manager process to close.' }\n"
-            "    Start-Sleep -Milliseconds 500\n"
-            "  }\n"
-            "  Copy-Item -LiteralPath $source -Destination $staged -Force\n"
-            "  if (!(Test-Path -LiteralPath $staged) -or (Get-Item -LiteralPath $staged).Length -lt 1024) { throw 'The staged update file is missing or incomplete.' }\n"
-            "  $header = ([System.IO.File]::ReadAllBytes($staged))[0..1]\n"
-            "  if ($header[0] -ne 77 -or $header[1] -ne 90) { throw 'The staged update is not a Windows executable.' }\n"
-            "  if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }\n"
-            "  Copy-Item -LiteralPath $target -Destination $backup -Force\n"
-            "  Move-Item -LiteralPath $staged -Destination $target -Force\n"
-            "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Replaced executable; starting updated manager')\n"
-            "  $started = Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target) -PassThru\n"
-            "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Started updated manager process: ' + $started.Id)\n"
-            "  $ready = $started.WaitForInputIdle(30000)\n"
-            "  if (!$ready) { throw 'Updated manager did not become ready within 30 seconds.' }\n"
-            "  Start-Sleep -Seconds 3\n"
-            "  $started.Refresh()\n"
-            "  if ($started.HasExited) { throw ('Updated manager exited during startup (exit code ' + $started.ExitCode + ').') }\n"
-            "  Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue\n"
-            "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Update succeeded; new manager process is running')\n"
-            "} catch {\n"
-            "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' UPDATE ERROR: ' + $_.Exception.Message)\n"
-            "  if (Test-Path -LiteralPath $backup) {\n"
-            "    try {\n"
-            "      if ($started -and !$started.HasExited) { Stop-Process -Id $started.Id -Force -ErrorAction SilentlyContinue }\n"
-            "      Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue\n"
-            "      Move-Item -LiteralPath $backup -Destination $target -Force\n"
-            "      Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target)\n"
-            "      Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Restored previous manager and restarted it')\n"
-            "    } catch { Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' ROLLBACK ERROR: ' + $_.Exception.Message) }\n"
-            "  } elseif (Test-Path -LiteralPath $target) { Start-Process -FilePath $target }\n"
-            "} finally {\n"
-            "  Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue\n"
-            "  Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue\n"
-            "  Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\n"
-            "}\n",
+            _build_update_script(
+                current_exe,
+                downloaded,
+                update_dir / "update-install.log",
+                update_dir / f"ready-{uuid.uuid4().hex}.flag",
+                os.getpid(),
+            ),
             encoding="utf-8",
         )
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
@@ -1872,7 +2034,9 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
                     raise ManagerError("The manager is already up to date.")
                 schedule_self_update(release)
                 self._send_json({"scheduled": True, "version": release["latest_version"]})
-                threading.Timer(2.5, lambda: os._exit(0)).start()
+                exit_timer = threading.Timer(1.5, _exit_for_update)
+                exit_timer.daemon = True
+                exit_timer.start()
                 return
             if self.path == "/api/game/launch":
                 self._send_json(self.manager.launch_game())
@@ -2061,6 +2225,7 @@ def main() -> int:
         help="Local port to use (default: let Windows choose an available port).",
     )
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--update-ready-file", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     try:
@@ -2080,6 +2245,8 @@ def main() -> int:
         print("Close the app window to stop the manager.", flush=True)
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
+    global _APP_EXIT_CALLBACK
+    _APP_EXIT_CALLBACK = server.shutdown
     try:
         if not args.no_browser:
             try:
@@ -2093,12 +2260,16 @@ def main() -> int:
                     background_color="#13191b", shadow=True,
                 )
                 api.window = window
+                _APP_EXIT_CALLBACK = window.destroy
+                window.events.shown += lambda: _signal_update_ready(args.update_ready_file)
                 webview.start()
                 return 0
             except Exception as error:
                 if getattr(sys, "stdout", None) is not None:
                     print(f"Desktop window unavailable ({error}); opening the browser instead.", flush=True)
                 webbrowser.open(address)
+        _APP_EXIT_CALLBACK = server.shutdown
+        _signal_update_ready(args.update_ready_file)
         server_thread.join()
     except KeyboardInterrupt:
         print("\nStopping GZPro Mod Manager.")
