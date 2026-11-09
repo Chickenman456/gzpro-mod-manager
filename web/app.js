@@ -165,8 +165,24 @@ function setMessage(message, isError = false) {
 }
 
 async function requestJson(url, options = {}) {
-  const response = await fetch(url, options);
-  const result = await response.json();
+  const { timeoutMs, ...fetchOptions } = options;
+  let timer = null;
+  if (timeoutMs) {
+    const controller = new AbortController();
+    fetchOptions.signal = controller.signal;
+    timer = setTimeout(() => controller.abort(), timeoutMs);
+  }
+  let response;
+  let result;
+  try {
+    response = await fetch(url, fetchOptions);
+    result = await response.json();
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error("The manager did not respond in time.");
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   if (!response.ok) throw new Error(result.error || `Request failed (${response.status}).`);
   return result;
 }
@@ -294,7 +310,7 @@ async function refreshStatus() {
     if (polling) return;
     polling = true;
     try {
-      const progress = await requestJson("/api/status/progress");
+      const progress = await requestJson("/api/status/progress", { timeoutMs: 3000 });
       if (progress.stage) stage.textContent = progress.stage;
     } catch (_) {
       // The main status request remains authoritative if progress polling fails.
@@ -306,11 +322,22 @@ async function refreshStatus() {
 
   await updateProgress();
   const progressTimer = setInterval(updateProgress, 500);
+  const maxAttempts = 4;
   try {
-    renderStatus(await requestJson("/api/status"));
-  } catch (error) {
-    setMessage(`Could not read manager status: ${error.message}`, true);
-    stage.textContent = "Status check failed";
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        renderStatus(await requestJson("/api/status", { timeoutMs: 30000 }));
+        break;
+      } catch (error) {
+        if (attempt === maxAttempts) {
+          setMessage(`Could not read manager status: ${error.message} Click Refresh to try again.`, true);
+          stage.textContent = "Status check failed";
+          break;
+        }
+        stage.textContent = `Status check stalled, retrying (${attempt + 1} of ${maxAttempts})…`;
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+      }
+    }
   } finally {
     clearInterval(progressTimer);
     elapsed.textContent = `${Math.floor((performance.now() - startedAt) / 1000)}s`;
