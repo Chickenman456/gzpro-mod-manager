@@ -1752,6 +1752,131 @@ def get_latest_release() -> dict[str, object]:
     }
 
 
+def _ps_quote(value: object) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _build_update_script(
+    current_exe: Path, downloaded: Path, log_file: Path, ready_file: Path, manager_pid: int
+) -> str:
+    """PowerShell that swaps in the new executable after this manager has fully exited.
+
+    The PyInstaller one-file build runs as two processes: a bootloader that owns
+    the .exe file and a child Python process (os.getpid()). The script therefore
+    waits for *every* process running the target .exe, retries the file swap
+    while Windows or antivirus still holds a lock, and treats the update as
+    healthy only when the new version writes the ready file after its window opens.
+    """
+    return (
+        "$ErrorActionPreference = 'Stop'\n"
+        f"$target = {_ps_quote(current_exe)}\n"
+        f"$source = {_ps_quote(downloaded)}\n"
+        f"$logPath = {_ps_quote(log_file)}\n"
+        f"$readyFile = {_ps_quote(ready_file)}\n"
+        f"$managerProcessId = {int(manager_pid)}\n"
+        "$staged = $target + '.update'\n"
+        "$backup = $target + '.previous'\n"
+        "$started = $null\n"
+        "function Write-Log($text) { Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' ' + $text) }\n"
+        "function Get-ManagerProcesses {\n"
+        "  @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Id -eq $managerProcessId -or $_.Path -eq $target })\n"
+        "}\n"
+        "function Wait-ManagerClosed($seconds) {\n"
+        "  $deadline = (Get-Date).AddSeconds($seconds)\n"
+        "  while ((Get-ManagerProcesses).Count -gt 0) {\n"
+        "    if ((Get-Date) -gt $deadline) { throw 'Timed out waiting for the manager to close.' }\n"
+        "    Start-Sleep -Milliseconds 500\n"
+        "  }\n"
+        "}\n"
+        "function Stop-ManagerProcesses {\n"
+        "  Get-ManagerProcesses | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }\n"
+        "  Start-Sleep -Seconds 1\n"
+        "}\n"
+        "function Move-WithRetry($from, $to) {\n"
+        "  $deadline = (Get-Date).AddSeconds(30)\n"
+        "  while ($true) {\n"
+        "    try { Move-Item -LiteralPath $from -Destination $to -Force; return }\n"
+        "    catch {\n"
+        "      if ((Get-Date) -gt $deadline) { throw }\n"
+        "      Start-Sleep -Milliseconds 500\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        "function Start-Manager {\n"
+        "  Remove-Item -LiteralPath $readyFile -Force -ErrorAction SilentlyContinue\n"
+        "  Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target) -ArgumentList ('--update-ready-file \"' + $readyFile + '\"') -PassThru\n"
+        "}\n"
+        "try {\n"
+        "  Write-Log 'Waiting for the manager to close'\n"
+        "  Wait-ManagerClosed 120\n"
+        "  Copy-Item -LiteralPath $source -Destination $staged -Force\n"
+        "  if (!(Test-Path -LiteralPath $staged) -or (Get-Item -LiteralPath $staged).Length -lt 1024) { throw 'The staged update file is missing or incomplete.' }\n"
+        "  $header = ([System.IO.File]::ReadAllBytes($staged))[0..1]\n"
+        "  if ($header[0] -ne 77 -or $header[1] -ne 90) { throw 'The staged update is not a Windows executable.' }\n"
+        "  if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }\n"
+        "  Copy-Item -LiteralPath $target -Destination $backup -Force\n"
+        "  Move-WithRetry $staged $target\n"
+        "  Write-Log 'Replaced executable; starting updated manager'\n"
+        "  $started = Start-Manager\n"
+        "  Write-Log ('Started updated manager process: ' + $started.Id)\n"
+        "  $deadline = (Get-Date).AddSeconds(90)\n"
+        "  while (!(Test-Path -LiteralPath $readyFile)) {\n"
+        "    $started.Refresh()\n"
+        "    if ($started.HasExited) { throw ('Updated manager exited during startup (exit code ' + $started.ExitCode + ').') }\n"
+        "    if ((Get-Date) -gt $deadline) { throw 'Updated manager did not open its window within 90 seconds.' }\n"
+        "    Start-Sleep -Milliseconds 500\n"
+        "  }\n"
+        "  Remove-Item -LiteralPath $readyFile -Force -ErrorAction SilentlyContinue\n"
+        "  Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue\n"
+        "  Write-Log 'Update succeeded; new manager is running'\n"
+        "} catch {\n"
+        "  Write-Log ('UPDATE ERROR: ' + $_.Exception.Message)\n"
+        "  if (Test-Path -LiteralPath $backup) {\n"
+        "    try {\n"
+        "      Stop-ManagerProcesses\n"
+        "      Move-WithRetry $backup $target\n"
+        "      Start-Manager | Out-Null\n"
+        "      Write-Log 'Restored previous manager and restarted it'\n"
+        "    } catch { Write-Log ('ROLLBACK ERROR: ' + $_.Exception.Message) }\n"
+        "  } elseif ((Test-Path -LiteralPath $target) -and (Get-ManagerProcesses).Count -eq 0) {\n"
+        "    Start-Manager | Out-Null\n"
+        "    Write-Log 'Restarted the current manager without updating'\n"
+        "  }\n"
+        "} finally {\n"
+        "  Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue\n"
+        "  Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue\n"
+        "  Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\n"
+        "}\n"
+    )
+
+
+_APP_EXIT_CALLBACK = None
+
+
+def _exit_for_update() -> None:
+    """Close the window cleanly so the updater can replace the executable."""
+    fallback = threading.Timer(10, lambda: os._exit(0))
+    fallback.daemon = True
+    fallback.start()
+    callback = _APP_EXIT_CALLBACK
+    if callback is None:
+        os._exit(0)
+    try:
+        callback()
+    except Exception:
+        os._exit(0)
+
+
+def _signal_update_ready(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(APP_VERSION, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def schedule_self_update(release: dict[str, object]) -> None:
     if sys.platform != "win32" or not getattr(sys, "frozen", False):
         raise ManagerError("In-app installation is available in the Windows executable, not the Python source version.")
@@ -1796,57 +1921,14 @@ def schedule_self_update(release: dict[str, object]) -> None:
             if digest.hexdigest().casefold() != expected_digest[7:].casefold():
                 raise ManagerError("The downloaded update failed GitHub's SHA-256 integrity check.")
         script = update_dir / f"install-{uuid.uuid4().hex}.ps1"
-        log_file = update_dir / "update-install.log"
-        quote = lambda value: "'" + str(value).replace("'", "''") + "'"
         script.write_text(
-            "$ErrorActionPreference = 'Stop'\n"
-            f"$target = {quote(current_exe)}\n"
-            f"$source = {quote(downloaded)}\n"
-            f"$logPath = {quote(log_file)}\n"
-            f"$managerProcessId = {os.getpid()}\n"
-            "$staged = $target + '.update'\n"
-            "$backup = $target + '.previous'\n"
-            "$started = $null\n"
-            "try {\n"
-            "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Waiting for manager to close')\n"
-            "  $deadline = (Get-Date).AddSeconds(120)\n"
-            "  while (Get-Process -Id $managerProcessId -ErrorAction SilentlyContinue) {\n"
-            "    if ((Get-Date) -gt $deadline) { throw 'Timed out waiting for the manager process to close.' }\n"
-            "    Start-Sleep -Milliseconds 500\n"
-            "  }\n"
-            "  Copy-Item -LiteralPath $source -Destination $staged -Force\n"
-            "  if (!(Test-Path -LiteralPath $staged) -or (Get-Item -LiteralPath $staged).Length -lt 1024) { throw 'The staged update file is missing or incomplete.' }\n"
-            "  $header = ([System.IO.File]::ReadAllBytes($staged))[0..1]\n"
-            "  if ($header[0] -ne 77 -or $header[1] -ne 90) { throw 'The staged update is not a Windows executable.' }\n"
-            "  if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }\n"
-            "  Copy-Item -LiteralPath $target -Destination $backup -Force\n"
-            "  Move-Item -LiteralPath $staged -Destination $target -Force\n"
-            "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Replaced executable; starting updated manager')\n"
-            "  $started = Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target) -PassThru\n"
-            "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Started updated manager process: ' + $started.Id)\n"
-            "  $ready = $started.WaitForInputIdle(30000)\n"
-            "  if (!$ready) { throw 'Updated manager did not become ready within 30 seconds.' }\n"
-            "  Start-Sleep -Seconds 3\n"
-            "  $started.Refresh()\n"
-            "  if ($started.HasExited) { throw ('Updated manager exited during startup (exit code ' + $started.ExitCode + ').') }\n"
-            "  Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue\n"
-            "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Update succeeded; new manager process is running')\n"
-            "} catch {\n"
-            "  Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' UPDATE ERROR: ' + $_.Exception.Message)\n"
-            "  if (Test-Path -LiteralPath $backup) {\n"
-            "    try {\n"
-            "      if ($started -and !$started.HasExited) { Stop-Process -Id $started.Id -Force -ErrorAction SilentlyContinue }\n"
-            "      Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue\n"
-            "      Move-Item -LiteralPath $backup -Destination $target -Force\n"
-            "      Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target)\n"
-            "      Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' Restored previous manager and restarted it')\n"
-            "    } catch { Add-Content -LiteralPath $logPath -Value ((Get-Date -Format o) + ' ROLLBACK ERROR: ' + $_.Exception.Message) }\n"
-            "  } elseif (Test-Path -LiteralPath $target) { Start-Process -FilePath $target }\n"
-            "} finally {\n"
-            "  Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue\n"
-            "  Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue\n"
-            "  Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\n"
-            "}\n",
+            _build_update_script(
+                current_exe,
+                downloaded,
+                update_dir / "update-install.log",
+                update_dir / f"ready-{uuid.uuid4().hex}.flag",
+                os.getpid(),
+            ),
             encoding="utf-8",
         )
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
@@ -1952,7 +2034,9 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
                     raise ManagerError("The manager is already up to date.")
                 schedule_self_update(release)
                 self._send_json({"scheduled": True, "version": release["latest_version"]})
-                threading.Timer(2.5, lambda: os._exit(0)).start()
+                exit_timer = threading.Timer(1.5, _exit_for_update)
+                exit_timer.daemon = True
+                exit_timer.start()
                 return
             if self.path == "/api/game/launch":
                 self._send_json(self.manager.launch_game())
@@ -2141,6 +2225,7 @@ def main() -> int:
         help="Local port to use (default: let Windows choose an available port).",
     )
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--update-ready-file", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     try:
@@ -2160,6 +2245,8 @@ def main() -> int:
         print("Close the app window to stop the manager.", flush=True)
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
+    global _APP_EXIT_CALLBACK
+    _APP_EXIT_CALLBACK = server.shutdown
     try:
         if not args.no_browser:
             try:
@@ -2173,12 +2260,16 @@ def main() -> int:
                     background_color="#13191b", shadow=True,
                 )
                 api.window = window
+                _APP_EXIT_CALLBACK = window.destroy
+                window.events.shown += lambda: _signal_update_ready(args.update_ready_file)
                 webview.start()
                 return 0
             except Exception as error:
                 if getattr(sys, "stdout", None) is not None:
                     print(f"Desktop window unavailable ({error}); opening the browser instead.", flush=True)
                 webbrowser.open(address)
+        _APP_EXIT_CALLBACK = server.shutdown
+        _signal_update_ready(args.update_ready_file)
         server_thread.join()
     except KeyboardInterrupt:
         print("\nStopping GZPro Mod Manager.")

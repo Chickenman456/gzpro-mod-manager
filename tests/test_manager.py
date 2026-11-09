@@ -920,3 +920,41 @@ class StartupHangTests(unittest.TestCase):
 
         names = {name.casefold() for name in manager_module._list_process_names_native()}
         self.assertIn(os.path.basename(sys.executable).casefold(), names)
+
+
+class SelfUpdateScriptTests(unittest.TestCase):
+    def build(self) -> str:
+        import manager as manager_module
+
+        return manager_module._build_update_script(
+            Path(r"C:\Users\O'Neil\Apps\GZProModManager.exe"),
+            Path(r"C:\Users\O'Neil\AppData\Local\GZProModManager\updates\new.exe"),
+            Path(r"C:\Users\O'Neil\AppData\Local\GZProModManager\updates\update-install.log"),
+            Path(r"C:\Users\O'Neil\AppData\Local\GZProModManager\updates\ready-1.flag"),
+            4242,
+        )
+
+    def test_waits_for_every_process_running_the_executable(self) -> None:
+        script = self.build()
+        # PyInstaller one-file builds run a bootloader parent that owns the .exe.
+        self.assertIn("$_.Path -eq $target", script)
+        self.assertIn("$managerProcessId = 4242", script)
+        self.assertIn("Move-WithRetry $staged $target", script)
+
+    def test_health_check_uses_ready_file_not_wait_for_input_idle(self) -> None:
+        script = self.build()
+        self.assertNotIn("WaitForInputIdle", script)
+        self.assertIn("--update-ready-file", script)
+        self.assertIn("Test-Path -LiteralPath $readyFile", script)
+
+    def test_paths_with_apostrophes_are_quoted_for_powershell(self) -> None:
+        self.assertIn(r"$target = 'C:\Users\O''Neil\Apps\GZProModManager.exe'", self.build())
+
+    def test_ready_file_is_written(self) -> None:
+        import manager as manager_module
+
+        with tempfile.TemporaryDirectory() as directory:
+            flag = Path(directory) / "nested" / "ready.flag"
+            manager_module._signal_update_ready(flag)
+            self.assertEqual(flag.read_text(encoding="utf-8"), manager_module.APP_VERSION)
+            manager_module._signal_update_ready(None)
