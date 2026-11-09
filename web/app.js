@@ -77,7 +77,9 @@ async function checkForUpdates() {
       title.textContent = `Version ${latestRelease.latest_version} is available.`;
       details.textContent = latestRelease.can_install
         ? `You have v${latestRelease.current_version}. The updater downloads the official GitHub release, verifies its SHA-256 digest when provided, then restarts the manager. Your mod library and settings are stored separately and will be preserved.`
-        : `You have v${latestRelease.current_version}. Download the latest Windows executable from the release page; in-app installation is available in the packaged Windows app.`;
+        : latestRelease.channel === "nexus"
+          ? `You have v${latestRelease.current_version}. Download the new version from the release page or Nexus Mods and replace this folder. Your mod library and settings are stored separately and will be kept.`
+          : `You have v${latestRelease.current_version}. Download the latest Windows executable from the release page; in-app installation is available in the packaged Windows app.`;
       install.hidden = !latestRelease.can_install;
     }
   } catch (error) {

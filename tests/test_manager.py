@@ -958,3 +958,30 @@ class SelfUpdateScriptTests(unittest.TestCase):
             manager_module._signal_update_ready(flag)
             self.assertEqual(flag.read_text(encoding="utf-8"), manager_module.APP_VERSION)
             manager_module._signal_update_ready(None)
+
+
+class DistributionChannelTests(unittest.TestCase):
+    def test_nexus_build_never_self_updates(self) -> None:
+        from unittest.mock import patch
+        import manager as manager_module
+
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "distribution.json").write_text('{"channel": "nexus"}', encoding="utf-8")
+            with patch.object(manager_module, "APP_RESOURCE_DIR", Path(directory)), patch.object(
+                manager_module.sys, "platform", "win32"
+            ), patch.object(manager_module.sys, "frozen", True, create=True):
+                self.assertEqual(manager_module._distribution_channel(), "nexus")
+                self.assertFalse(manager_module._can_self_update())
+                with self.assertRaises(ManagerError):
+                    manager_module.schedule_self_update({"download_url": "https://example.invalid/x.exe"})
+
+    def test_default_channel_is_github(self) -> None:
+        from unittest.mock import patch
+        import manager as manager_module
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(manager_module, "APP_RESOURCE_DIR", Path(directory)):
+                self.assertEqual(manager_module._distribution_channel(), "github")
+            (Path(directory) / "distribution.json").write_text('{"channel": "other"}', encoding="utf-8")
+            with patch.object(manager_module, "APP_RESOURCE_DIR", Path(directory)):
+                self.assertEqual(manager_module._distribution_channel(), "github")

@@ -15,6 +15,15 @@ The project is open source under the MIT License. See [LICENSE](LICENSE). UI con
 
 To run from source for development, install Python 3.10 or newer and run `run.bat`.
 
+### Which download should I use?
+
+Each release has two Windows builds, both made by this repository's GitHub Actions workflow from the public source:
+
+- **`GZProModManager.exe`**: a single file that can update itself from inside the app.
+- **`GZProModManager-Nexus.zip`**: the build uploaded to Nexus Mods. Extract the whole folder and run `GZProModManager.exe` inside it. It doesn't self-extract and doesn't replace its own files. To update, download the new zip and replace the folder. Your mods, backups and settings are stored in `%LOCALAPPDATA%\GZProModManager` and are kept.
+
+Some antivirus engines flag unsigned PyInstaller apps as suspicious even when they're safe. Both builds use a PyInstaller bootloader compiled from source to reduce these false positives. You can check what's inside by reading the source and the [build workflow](.github/workflows/build-windows-exe.yml).
+
 
 The Windows executable runs without opening a terminal and opens in a frameless, resizable desktop window with a custom Steam-style title bar and window controls (using WebView2 when available); if that runtime is unavailable, it falls back to the default browser. Its Windows executable icon is generated from `gzpicon.png`. The header's **Check for updates** button checks the latest stable GitHub release and can download, verify when a release digest is published, install, and restart the executable. The updater checks that the executable folder is writable before downloading, stages the replacement beside the executable, and logs any post-launch replacement error to `%LOCALAPPDATA%\\GZProModManager\\updates\\update-install.log`. Mod backups and settings remain in `%LOCALAPPDATA%\\GZProModManager` and are not replaced by an update.
 
