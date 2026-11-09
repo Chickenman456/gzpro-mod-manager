@@ -1,5 +1,13 @@
 # Build from master so fixes made after the workflow commit are included.
 # pywebview and its Windows runtime dependencies are bundled for the dedicated app window.
+#
+# Two release assets are produced:
+#   GZProModManager.exe        one-file build used by the in-app updater (GitHub)
+#   GZProModManager-Nexus.zip  folder build for Nexus Mods: no self-extraction and
+#                              no self-replacing updater, which antivirus engines
+#                              often flag as suspicious.
+# Both use a PyInstaller bootloader compiled from source in this workflow, so they
+# do not share the prebuilt bootloader that many malware samples also use.
 name: Build Windows executable
 
 on:
@@ -29,25 +37,54 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install PyInstaller
+      - name: Install PyInstaller with a bootloader compiled from source
+        env:
+          PYINSTALLER_COMPILE_BOOTLOADER: "1"
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pyinstaller pywebview pillow
+          python -m pip install --upgrade pip wheel
+          python -m pip install --no-cache-dir --no-binary pyinstaller pyinstaller
+          python -m pip install pywebview pillow pefile
 
       - name: Run test suite
         run: python -m unittest discover -s tests -v
 
-      - name: Convert desktop icon to Windows ICO
+      - name: Convert GZP icon to Windows ICO
         run: python -c "from PIL import Image; Image.open('gzpicon.png').convert('RGBA').save('GZProModManager.ico', format='ICO', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"
 
-      - name: Build standalone executable with desktop icon
-        run: pyinstaller --noconfirm --clean --onefile --noconsole --name GZProModManager --icon GZProModManager.ico --collect-all webview --collect-all clr_loader --collect-all pythonnet --add-data "web;web" --add-data "gzprologo.png;." --add-data "gzpicon.png;." manager.py
+      - name: Build one-file executable (GitHub release, in-app updater)
+        run: pyinstaller --noconfirm --clean --onefile --noconsole --name GZProModManager --icon GZProModManager.ico --collect-all webview --collect-all clr_loader --collect-all pythonnet --add-data "web;web" --add-data "gzprologo.png;." --add-data "gzpicon.png;." --add-data "GZProModManager.ico;." manager.py
 
-      - name: Attach executable to v1.12.10 release
+      - name: Build folder version (Nexus Mods)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build-nexus | Out-Null
+          Set-Content -LiteralPath build-nexus/distribution.json -Value '{"channel": "nexus"}' -Encoding utf8
+          pyinstaller --noconfirm --onedir --noconsole --name GZProModManager --icon GZProModManager.ico --distpath dist-nexus --workpath build-nexus/work --collect-all webview --collect-all clr_loader --collect-all pythonnet --add-data "web;web" --add-data "gzprologo.png;." --add-data "gzpicon.png;." --add-data "GZProModManager.ico;." --add-data "build-nexus/distribution.json;." manager.py
+          Compress-Archive -Path dist-nexus/GZProModManager -DestinationPath dist/GZProModManager-Nexus.zip -Force
+
+      - name: Check both executables carry the GZP icon
+        shell: pwsh
+        run: |
+          $check = @'
+          import sys, pefile
+          for path in sys.argv[1:]:
+              pe = pefile.PE(path, fast_load=True)
+              pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_RESOURCE"]])
+              resources = pe.DIRECTORY_ENTRY_RESOURCE.entries if hasattr(pe, "DIRECTORY_ENTRY_RESOURCE") else []
+              if pefile.RESOURCE_TYPE["RT_GROUP_ICON"] not in {entry.id for entry in resources}:
+                  sys.exit(f"{path} has no icon resource")
+              print(f"{path}: icon OK")
+          '@
+          $check | Set-Content -LiteralPath check_icon.py -Encoding utf8
+          python check_icon.py dist/GZProModManager.exe dist-nexus/GZProModManager/GZProModManager.exe
+
+      - name: Attach builds to v1.12.10 release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.12.10
-          files: dist/GZProModManager.exe
+          files: |
+            dist/GZProModManager.exe
+            dist/GZProModManager-Nexus.zip
           overwrite_files: true
           fail_on_unmatched_files: true
         env:

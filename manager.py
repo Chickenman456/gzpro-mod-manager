@@ -1718,6 +1718,28 @@ class ModManager:
             self._lock.release()
 
 
+APP_RESOURCE_DIR = Path(__file__).resolve().parent
+APP_ICON_PATH = APP_RESOURCE_DIR / "GZProModManager.ico"
+
+
+def _distribution_channel() -> str:
+    """Return "nexus" for the Nexus Mods build, which never replaces its own files."""
+    try:
+        data = json.loads((APP_RESOURCE_DIR / "distribution.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "github"
+    channel = data.get("channel") if isinstance(data, dict) else None
+    return channel if channel in {"github", "nexus"} else "github"
+
+
+def _can_self_update() -> bool:
+    return (
+        sys.platform == "win32"
+        and bool(getattr(sys, "frozen", False))
+        and _distribution_channel() != "nexus"
+    )
+
+
 def get_latest_release() -> dict[str, object]:
     request = urllib.request.Request(
         GITHUB_RELEASE_API,
@@ -1741,7 +1763,8 @@ def get_latest_release() -> dict[str, object]:
         raise ManagerError("The latest release does not include GZProModManager.exe.")
     return {
         "current_version": APP_VERSION,
-        "can_install": sys.platform == "win32" and getattr(sys, "frozen", False),
+        "can_install": _can_self_update(),
+        "channel": _distribution_channel(),
         "latest_version": tag.lstrip("v"),
         "tag": tag,
         "update_available": tuple(int(part) for part in tag[1:].split(".")) > tuple(int(part) for part in APP_VERSION.split(".")),
@@ -1878,6 +1901,8 @@ def _signal_update_ready(path: Path | None) -> None:
 
 
 def schedule_self_update(release: dict[str, object]) -> None:
+    if _distribution_channel() == "nexus":
+        raise ManagerError("This build updates through its download page. Download the latest version there.")
     if sys.platform != "win32" or not getattr(sys, "frozen", False):
         raise ManagerError("In-app installation is available in the Windows executable, not the Python source version.")
     current_exe = Path(sys.executable).resolve()
@@ -2262,7 +2287,7 @@ def main() -> int:
                 api.window = window
                 _APP_EXIT_CALLBACK = window.destroy
                 window.events.shown += lambda: _signal_update_ready(args.update_ready_file)
-                webview.start()
+                webview.start(icon=str(APP_ICON_PATH) if APP_ICON_PATH.is_file() else None)
                 return 0
             except Exception as error:
                 if getattr(sys, "stdout", None) is not None:
