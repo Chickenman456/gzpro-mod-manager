@@ -660,8 +660,28 @@ async function showVersion() {
   }
 }
 
+// Watch for the game starting or closing so the page never stays stuck on
+// "The game is running" after you quit (the full status only refreshes on actions).
+let gameWatchBusy = false;
+async function watchGame() {
+  if (gameWatchBusy || state.busy || !state.status?.game_valid || document.hidden) return;
+  gameWatchBusy = true;
+  try {
+    const result = await requestJson("/api/game/running", { timeoutMs: 8000 });
+    if (typeof result.running === "boolean" && result.running !== Boolean(state.status.game_running)) {
+      await refreshStatus();
+    }
+  } catch (_) {
+    // A missed check is harmless; the next one runs in a few seconds.
+  } finally {
+    gameWatchBusy = false;
+  }
+}
+
 showVersion();
 refreshStatus();
+setInterval(watchGame, 3000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) watchGame(); });
 
 // ---------- Audio tab ----------
 const audio = { loaded: false, files: [], selected: null, busy: false };

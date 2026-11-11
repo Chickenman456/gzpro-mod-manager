@@ -36,7 +36,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.13.3"
+APP_VERSION = "1.13.4"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -659,6 +659,13 @@ class ModManager:
             GAME_CHECK_LOCK.release()
         wanted = GAME_EXECUTABLE.name.casefold()
         return any(name.casefold() == wanted for name in names)
+
+    def game_running_state(self) -> dict[str, object]:
+        """Cheap check the page polls so it notices the game starting or closing."""
+        try:
+            return {"running": self._is_game_running()}
+        except StateError as error:
+            return {"running": None, "error": str(error)}
 
     def _require_game_closed(self) -> None:
         if self._is_game_running():
@@ -2122,6 +2129,9 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
             return
         if self.path == "/api/version":
             self._send_json({"version": APP_VERSION})
+            return
+        if self.path == "/api/game/running":
+            self._send_json(self.manager.game_running_state())
             return
         if self.path == "/api/status/progress":
             self._send_json(_get_status_progress())

@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from manager import ConflictError, ManagerError, ModManager, create_server
+from manager import ConflictError, ManagerError, ModManager, StateError, create_server
 
 
 def make_package(members: dict[str, bytes]) -> bytes:
@@ -1140,3 +1140,20 @@ class AudioReplacerTests(unittest.TestCase):
         self.assertEqual(summary["audio_like"], 2)
         self.assertIn(("ExportBundleData", 2), summary["chunk_types"])
         self.assertTrue(summary["audio_samples"][0].startswith("GZPro/Content/Audio/Roar.uasset"))
+
+
+class GameRunningEndpointTests(unittest.TestCase):
+    def test_running_state_follows_the_process_check(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manager = ModManager(game_dir=Path(directory) / "game", state_base=Path(directory) / "state")
+            running = {"value": True}
+            manager._is_game_running = lambda: running["value"]
+            self.assertEqual(manager.game_running_state(), {"running": True})
+            running["value"] = False
+            self.assertEqual(manager.game_running_state(), {"running": False})
+
+            def broken() -> bool:
+                raise StateError("check failed")
+
+            manager._is_game_running = broken
+            self.assertEqual(manager.game_running_state(), {"running": None, "error": "check failed"})
