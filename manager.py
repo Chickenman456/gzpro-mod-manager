@@ -34,7 +34,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.12.13"
+APP_VERSION = "1.12.14"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -1753,16 +1753,6 @@ APP_RESOURCE_DIR = Path(__file__).resolve().parent
 APP_ICON_PATH = APP_RESOURCE_DIR / "GZProModManager.ico"
 
 
-def _distribution_channel() -> str:
-    """Return "nexus" for the Nexus Mods build, which never replaces its own files."""
-    try:
-        data = json.loads((APP_RESOURCE_DIR / "distribution.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return "github"
-    channel = data.get("channel") if isinstance(data, dict) else None
-    return channel if channel in {"github", "nexus"} else "github"
-
-
 # In-app installation is turned off for now: "Check for updates" only reports a
 # new version and links to the latest GitHub release. Set to True to restore it.
 IN_APP_UPDATES_ENABLED = False
@@ -1774,7 +1764,6 @@ def _can_self_update() -> bool:
         IN_APP_UPDATES_ENABLED
         and sys.platform == "win32"
         and bool(getattr(sys, "frozen", False))
-        and _distribution_channel() != "nexus"
     )
 
 
@@ -1802,7 +1791,6 @@ def get_latest_release() -> dict[str, object]:
     return {
         "current_version": APP_VERSION,
         "can_install": _can_self_update(),
-        "channel": _distribution_channel(),
         "latest_version": tag.lstrip("v"),
         "tag": tag,
         "update_available": tuple(int(part) for part in tag[1:].split(".")) > tuple(int(part) for part in APP_VERSION.split(".")),
@@ -1941,8 +1929,6 @@ def _signal_update_ready(path: Path | None) -> None:
 def schedule_self_update(release: dict[str, object]) -> None:
     if not IN_APP_UPDATES_ENABLED:
         raise ManagerError("In-app updating is turned off. Download the latest version from the release page.")
-    if _distribution_channel() == "nexus":
-        raise ManagerError("This build updates through its download page. Download the latest version there.")
     if sys.platform != "win32" or not getattr(sys, "frozen", False):
         raise ManagerError("In-app installation is available in the Windows executable, not the Python source version.")
     current_exe = Path(sys.executable).resolve()
@@ -2074,7 +2060,7 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
                 self._send_manager_error(error)
             return
         if self.path == "/api/version":
-            self._send_json({"version": APP_VERSION, "channel": _distribution_channel()})
+            self._send_json({"version": APP_VERSION})
             return
         if self.path == "/api/status/progress":
             self._send_json(_get_status_progress())
