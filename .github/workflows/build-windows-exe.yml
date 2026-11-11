@@ -78,10 +78,10 @@ jobs:
           $check | Set-Content -LiteralPath check_icon.py -Encoding utf8
           python check_icon.py dist/GZProModManager.exe dist-nexus/GZProModManager/GZProModManager.exe
 
-      - name: Attach builds to v1.12.12 release
+      - name: Attach builds to v1.12.13 release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.12.12
+          tag_name: v1.12.13
           files: |
             dist/GZProModManager.exe
             dist/GZProModManager-Nexus.zip
@@ -90,10 +90,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set v1.12.12 as the latest GitHub release
+      - name: Set v1.12.13 as the latest GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          $release = gh api "repos/${{ github.repository }}/releases/tags/v1.12.12" | ConvertFrom-Json
+          $release = gh api "repos/${{ github.repository }}/releases/tags/v1.12.13" | ConvertFrom-Json
           gh api --method PATCH "repos/${{ github.repository }}/releases/$($release.id)" -F make_latest=true

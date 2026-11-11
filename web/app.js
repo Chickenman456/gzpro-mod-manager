@@ -69,10 +69,18 @@ async function checkForUpdates() {
   details.textContent = "";
   try {
     latestRelease = await requestJson("/api/update/check");
-    byId("release-link").href = latestRelease.release_url;
+    const releaseLink = byId("release-link");
+    releaseLink.href = latestRelease.release_url;
+    releaseLink.textContent = "Release details";
     if (!latestRelease.update_available) {
       title.textContent = `You are up to date (v${latestRelease.current_version}).`;
       details.textContent = "No update is currently available.";
+    } else if (!latestRelease.can_install) {
+      title.textContent = `Version ${latestRelease.latest_version} is available.`;
+      details.textContent = latestRelease.channel === "nexus"
+        ? `You have v${latestRelease.current_version}. Download the new zip from the release page or Nexus Mods and replace this folder. Your mods and settings are stored separately and will be kept.`
+        : `You have v${latestRelease.current_version}. Download the new GZProModManager.exe from the release page, close this app, and replace your old exe with it. Your mods and settings are stored separately and will be kept.`;
+      releaseLink.textContent = `Download v${latestRelease.latest_version}`;
     } else {
       title.textContent = `Version ${latestRelease.latest_version} is available.`;
       details.textContent = latestRelease.can_install

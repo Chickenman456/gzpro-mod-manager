@@ -34,7 +34,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.12.12"
+APP_VERSION = "1.12.13"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -1763,9 +1763,16 @@ def _distribution_channel() -> str:
     return channel if channel in {"github", "nexus"} else "github"
 
 
+# In-app installation is turned off for now: "Check for updates" only reports a
+# new version and links to the latest GitHub release. Set to True to restore it.
+IN_APP_UPDATES_ENABLED = False
+LATEST_RELEASE_URL = "https://github.com/Chickenman456/gzpro-mod-manager/releases/latest"
+
+
 def _can_self_update() -> bool:
     return (
-        sys.platform == "win32"
+        IN_APP_UPDATES_ENABLED
+        and sys.platform == "win32"
         and bool(getattr(sys, "frozen", False))
         and _distribution_channel() != "nexus"
     )
@@ -1801,7 +1808,7 @@ def get_latest_release() -> dict[str, object]:
         "update_available": tuple(int(part) for part in tag[1:].split(".")) > tuple(int(part) for part in APP_VERSION.split(".")),
         "download_url": asset["browser_download_url"],
         "digest": asset.get("digest"),
-        "release_url": release.get("html_url", "https://github.com/Chickenman456/gzpro-mod-manager/releases"),
+        "release_url": release.get("html_url", LATEST_RELEASE_URL),
         "published_at": release.get("published_at", ""),
     }
 
@@ -1932,6 +1939,8 @@ def _signal_update_ready(path: Path | None) -> None:
 
 
 def schedule_self_update(release: dict[str, object]) -> None:
+    if not IN_APP_UPDATES_ENABLED:
+        raise ManagerError("In-app updating is turned off. Download the latest version from the release page.")
     if _distribution_channel() == "nexus":
         raise ManagerError("This build updates through its download page. Download the latest version there.")
     if sys.platform != "win32" or not getattr(sys, "frozen", False):

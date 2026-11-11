@@ -1017,3 +1017,16 @@ class VersionEndpointTests(unittest.TestCase):
                 server.server_close()
         page = (manager_module.WEB_DIRECTORY / "index.html").read_text(encoding="utf-8")
         self.assertNotRegex(page, r"v\d+\.\d+\.\d+")
+
+
+class LinkOnlyUpdateTests(unittest.TestCase):
+    def test_in_app_install_is_off_even_in_the_windows_exe(self) -> None:
+        from unittest.mock import patch
+        import manager as manager_module
+
+        with patch.object(manager_module.sys, "platform", "win32"), patch.object(
+            manager_module.sys, "frozen", True, create=True
+        ):
+            self.assertFalse(manager_module._can_self_update())
+            with self.assertRaises(ManagerError):
+                manager_module.schedule_self_update({"download_url": "https://example.invalid/x.exe"})
