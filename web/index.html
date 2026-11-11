@@ -62,7 +62,7 @@
 
     <nav class="tab-bar" role="tablist" aria-label="Manager pages">
       <button class="tab-button active" id="tab-mods" type="button" role="tab" aria-selected="true" aria-controls="page-mods">Mods</button>
-      <button class="tab-button" id="tab-audio" type="button" role="tab" aria-selected="false" aria-controls="page-audio">Audio</button>
+      <button class="tab-button" id="tab-audio" type="button" role="tab" aria-selected="false" aria-controls="page-audio">Audio <span class="experimental-tag">Experimental</span></button>
       <button class="tab-button" id="tab-changelog" type="button" role="tab" aria-selected="false" aria-controls="page-changelog">Changelog</button>
       <button class="tab-button" id="tab-troubleshooting" type="button" role="tab" aria-selected="false" aria-controls="page-troubleshooting">Troubleshooting</button>
     </nav>
@@ -153,10 +153,13 @@
       <section class="panel" aria-labelledby="audio-title">
         <div class="section-heading">
           <div>
-            <h2 id="audio-title">Audio replacer</h2>
+            <h2 id="audio-title">Audio replacer <span class="experimental-tag">Experimental</span></h2>
             <p class="muted">Browse the game's Wwise sounds, listen to them, export them as WAV, and swap in your own audio. Replacements are packed into one audio mod and installed like any other mod, so you can turn it off or delete it later.</p>
           </div>
           <button id="audio-rescan" class="button button-secondary" type="button">Rescan</button>
+        </div>
+        <div class="notice notice-caution audio-disclaimer">
+          <strong>Experimental: this may not work.</strong> The audio replacer hasn't been confirmed to work in Godzilla Remastered yet. The game may not find its sounds, or it may ignore or fail to load a replaced sound. Your original game files are never changed, and you can turn off or delete an audio mod in the Mods tab at any time. If something doesn't work, please report it with <strong>Report a bug</strong>.
         </div>
         <p id="audio-wwise" class="message" role="status"></p>
         <div class="audio-search">
@@ -165,6 +168,10 @@
         </div>
         <p id="audio-status" class="message" role="status">Open this tab to scan the game's sounds.</p>
         <div id="audio-list" class="audio-list" role="listbox" aria-label="Game sounds"></div>
+        <details id="audio-report-box" class="package-guide" hidden>
+          <summary>Scan report (include this in a bug report)</summary>
+          <pre id="audio-report" class="audio-report"></pre>
+        </details>
       </section>
 
       <section id="audio-selected" class="panel" aria-labelledby="audio-selected-title" hidden>

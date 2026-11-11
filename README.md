@@ -15,7 +15,9 @@ The project is open source under the MIT License. See [LICENSE](LICENSE). UI con
 
 To run from source for development, install Python 3.10 or newer and run `run.bat`.
 
-## Audio tab
+## Audio tab (experimental)
+
+> **Experimental:** the audio replacer hasn't been confirmed to work in Godzilla Remastered yet. It may not find the game's sounds, and the game may ignore replaced sounds. Original game files are never changed, and audio mods can be turned off or deleted in the Mods tab.
 
 The **Audio** tab replaces the game's Wwise sounds (`.wem` files stored in the game's `.pak` files):
 

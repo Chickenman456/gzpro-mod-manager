@@ -711,9 +711,10 @@ async function scanAudio(refresh) {
     audioStatus(
       result.files.length
         ? `Found ${result.files.length} sounds in ${result.paks_scanned} .pak file(s)${result.banks ? `, plus ${result.banks} sound banks (bank sounds can't be replaced yet)` : ""}.${problems}`
-        : `No .wem sounds were found in ${result.paks_scanned} .pak file(s).${problems}`,
+        : `No .wem sounds were found in ${result.paks_scanned} .pak file(s). The sounds may be stored inside the game's .utoc containers instead, which the replacer can't read yet. Open the scan report below and send it in a bug report.${problems}`,
       Boolean(result.errors.length && !result.files.length)
     );
+    renderAudioReport(result);
     renderAudioList();
   } catch (error) {
     audioStatus(`Could not scan the game's audio: ${error.message}`, true);
@@ -721,6 +722,21 @@ async function scanAudio(refresh) {
     audio.busy = false;
     byId("audio-rescan").disabled = false;
   }
+}
+
+function renderAudioReport(result) {
+  const lines = [`Sounds found: ${result.files.length}`, `Sound banks found: ${result.banks}`, "", "Game .pak files:"];
+  for (const pak of result.pak_summary || []) {
+    const types = pak.types.map(([type, count]) => `${type} ${count}`).join(", ");
+    lines.push(`- ${pak.name}: ${pak.files} files${types ? ` (${types})` : ""}`);
+  }
+  const containers = result.utoc_containers || [];
+  lines.push("", `IoStore containers (.utoc): ${containers.length}`);
+  for (const name of containers.slice(0, 20)) lines.push(`- ${name}`);
+  if (result.errors.length) lines.push("", "Errors:", ...result.errors.map((error) => `- ${error}`));
+  byId("audio-report").textContent = lines.join("\n");
+  byId("audio-report-box").hidden = false;
+  byId("audio-report-box").open = result.files.length === 0;
 }
 
 function renderAudioList() {

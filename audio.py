@@ -219,7 +219,7 @@ class AudioWorkspace:
                 key = str(pak.relative_to(paks_dir))
                 signature = [stat.st_size, stat.st_mtime_ns]
                 cached = cache.get(key) if isinstance(cache, dict) else None
-                if isinstance(cached, dict) and cached.get("signature") == signature:
+                if isinstance(cached, dict) and cached.get("signature") == signature and cached.get("v") == 2:
                     record = cached
                 else:
                     record = self._scan_pak(repak, pak, signature, errors)
@@ -243,7 +243,18 @@ class AudioWorkspace:
                 pass
             self._entries = entries
             self._paks_dir = paks_dir
+            pak_summary = [
+                {"name": key, "files": record.get("count", 0), "types": record.get("types", [])}
+                for key, record in new_cache.items()
+                if isinstance(record, dict)
+            ]
+            containers = [
+                str(path.relative_to(paks_dir)) for path in sorted(paks_dir.rglob("*.utoc"))
+                if not any(part.casefold() in {"~mods", "logicmods"} for part in path.relative_to(paks_dir).parts[:-1])
+            ]
             return {
+                "pak_summary": pak_summary,
+                "utoc_containers": containers,
                 "files": sorted(entries.values(), key=lambda item: (str(item["folder"]).casefold(), str(item["name"]).casefold())),
                 "banks": banks,
                 "paks_scanned": len(paks),
@@ -256,20 +267,22 @@ class AudioWorkspace:
         code, out, err = _run([repak, "info", pak], timeout=60)
         if code != 0:
             errors.append(f"{pak.name}: {(err or out).strip()[:200] or 'could not be read'}")
-            return {"signature": signature, "files": []}
+            return {"v": 2, "signature": signature, "files": []}
         if re.search(r"encrypted index:\s*true", out, re.IGNORECASE):
             errors.append(f"{pak.name}: encrypted, skipped")
-            return {"signature": signature, "files": []}
+            return {"v": 2, "signature": signature, "files": []}
         code, out, err = _run([repak, "list", pak], timeout=300)
         if code != 0:
             errors.append(f"{pak.name}: {(err or out).strip()[:200] or 'could not be listed'}")
-            return {"signature": signature, "files": []}
-        files = [
-            line.strip().replace("\\", "/")
-            for line in out.splitlines()
-            if line.strip().casefold().endswith((".wem", ".bnk"))
-        ]
-        return {"signature": signature, "files": files}
+            return {"v": 2, "signature": signature, "files": []}
+        listed = [line.strip().replace("\\", "/") for line in out.splitlines() if line.strip()]
+        files = [line for line in listed if line.casefold().endswith((".wem", ".bnk"))]
+        types: dict[str, int] = {}
+        for line in listed:
+            suffix = Path(line).suffix.casefold() or "(no extension)"
+            types[suffix] = types.get(suffix, 0) + 1
+        top = sorted(types.items(), key=lambda item: -item[1])[:8]
+        return {"v": 2, "signature": signature, "files": files, "count": len(listed), "types": top}
 
     def _entry(self, entry_id: str) -> dict[str, object]:
         entry = self._entries.get(_check_id(entry_id))
