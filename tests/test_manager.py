@@ -1119,3 +1119,24 @@ class AudioReplacerTests(unittest.TestCase):
         self.assertEqual(manager.audio.draft(), [])
         # The installed audio mod must not show up as a game sound on the next scan.
         self.assertEqual(len(manager.audio.scan(manager.paks_dir, refresh=True)["files"]), 1)
+
+    @unittest.skipIf(__import__("sys").platform == "win32", "uses a shell-script stand-in for retoc")
+    def test_utoc_summary_parses_retoc_listing(self) -> None:
+        import audio
+
+        fake = self.root / "retoc"
+        fake.write_text(
+            "#!/bin/sh\n"
+            "echo 'GZPro-Windows                  0123456789abcdef01234567 ExportBundleData     1024       GZPro/Content/Audio/Roar.uasset'\n"
+            "echo 'GZPro-Windows                  0123456789abcdef01234568 BulkData             999999     GZPro/Content/Audio/Roar.ubulk'\n"
+            "echo 'GZPro-Windows                  0123456789abcdef01234569 ExportBundleData     50         GZPro/Content/UI/Menu.uasset'\n"
+            "echo 'GZPro-Windows                  0123456789abcdef0123456a ScriptObjects        10         -'\n"
+        )
+        fake.chmod(0o755)
+        utoc = self.root / "GZPro-Windows.utoc"
+        utoc.write_bytes(b"x")
+        summary = audio._summarize_utoc(fake, utoc)
+        self.assertEqual(summary["chunks"], 4)
+        self.assertEqual(summary["audio_like"], 2)
+        self.assertIn(("ExportBundleData", 2), summary["chunk_types"])
+        self.assertTrue(summary["audio_samples"][0].startswith("GZPro/Content/Audio/Roar.uasset"))

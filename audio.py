@@ -70,6 +70,49 @@ def find_repak() -> Path | None:
     return _find_tool("GZPRO_REPAK", ["tools/repak.exe", "tools/repak"], ["repak"])
 
 
+def find_retoc() -> Path | None:
+    return _find_tool("GZPRO_RETOC", ["tools/retoc.exe", "tools/retoc"], ["retoc"])
+
+
+AUDIO_HINTS = ("wwise", "audio", "sound", "music", "bgm", "voice", "sfx", "akaudio", ".wem", ".bnk")
+
+
+def _summarize_utoc(retoc: Path, utoc: Path) -> dict[str, object]:
+    """List a .utoc's directory index (no decompression) and summarize it."""
+    code, out, err = _run([retoc, "list", "--size", "--path", utoc], timeout=300)
+    if code != 0:
+        return {"name": utoc.name, "error": (err or out).strip()[:300] or "could not be listed"}
+    chunk_types: dict[str, int] = {}
+    extensions: dict[str, int] = {}
+    audio_paths: list[str] = []
+    audio_count = 0
+    total = 0
+    for line in out.splitlines():
+        parts = line.split(None, 4)
+        if len(parts) < 5:
+            continue
+        _, _, chunk_type, size, path = parts
+        total += 1
+        chunk_types[chunk_type] = chunk_types.get(chunk_type, 0) + 1
+        if path == "-":
+            continue
+        suffix = Path(path).suffix.casefold() or "(no extension)"
+        extensions[suffix] = extensions.get(suffix, 0) + 1
+        if any(hint in path.casefold() for hint in AUDIO_HINTS):
+            audio_count += 1
+            if len(audio_paths) < 40:
+                audio_paths.append(f"{path} ({chunk_type}, {size.strip()} bytes)")
+    top = lambda values: sorted(values.items(), key=lambda item: -item[1])[:10]
+    return {
+        "name": utoc.name,
+        "chunks": total,
+        "chunk_types": top(chunk_types),
+        "types": top(extensions),
+        "audio_like": audio_count,
+        "audio_samples": audio_paths,
+    }
+
+
 def find_vgmstream() -> Path | None:
     return _find_tool(
         "GZPRO_VGMSTREAM",
@@ -183,6 +226,7 @@ class AudioWorkspace:
         return {
             "repak": bool(find_repak()),
             "vgmstream": bool(find_vgmstream()),
+            "retoc": bool(find_retoc()),
             "wwise": bool(wwise),
             "wwise_path": str(wwise) if wwise else "",
             "wwise_download_url": WWISE_DOWNLOAD_URL,
@@ -194,7 +238,9 @@ class AudioWorkspace:
         return tool
 
     # ---------- scan ----------
-    def scan(self, paks_dir: Path, refresh: bool = False) -> dict[str, object]:
+    def scan(self, paks_dir: Path, refresh: bool = False, exclude: set[str] | None = None) -> dict[str, object]:
+        """Scan game archives. ``exclude`` holds casefolded file names of installed mods."""
+        exclude = exclude or set()
         repak = self._require(find_repak(), "repak")
         if not paks_dir.is_dir():
             raise AudioError(f"The game's Paks folder is missing: {paks_dir}")
@@ -210,10 +256,14 @@ class AudioWorkspace:
             entries: dict[str, dict[str, object]] = {}
             errors: list[str] = []
             banks = 0
-            paks = sorted(
-                path for path in paks_dir.rglob("*.pak")
-                if not any(part.casefold() in {"~mods", "logicmods"} for part in path.relative_to(paks_dir).parts[:-1])
-            )
+            def game_archive(path: Path) -> bool:
+                relative = path.relative_to(paks_dir)
+                return (
+                    not any(part.casefold() in {"~mods", "logicmods"} for part in relative.parts[:-1])
+                    and path.name.casefold() not in exclude
+                )
+
+            paks = sorted(path for path in paks_dir.rglob("*.pak") if game_archive(path))
             for pak in paks:
                 stat = pak.stat()
                 key = str(pak.relative_to(paks_dir))
@@ -237,24 +287,40 @@ class AudioWorkspace:
                         "name": Path(path).name,
                         "folder": str(Path(path).parent).replace("\\", "/"),
                     }
-            try:
-                self.index_file.write_text(json.dumps(new_cache), encoding="utf-8")
-            except OSError:
-                pass
             self._entries = entries
             self._paks_dir = paks_dir
             pak_summary = [
                 {"name": key, "files": record.get("count", 0), "types": record.get("types", [])}
                 for key, record in new_cache.items()
-                if isinstance(record, dict)
+                if isinstance(record, dict) and not key.startswith("utoc:")
             ]
-            containers = [
-                str(path.relative_to(paks_dir)) for path in sorted(paks_dir.rglob("*.utoc"))
-                if not any(part.casefold() in {"~mods", "logicmods"} for part in path.relative_to(paks_dir).parts[:-1])
-            ]
+            utocs = [path for path in sorted(paks_dir.rglob("*.utoc")) if game_archive(path)]
+            containers = [str(path.relative_to(paks_dir)) for path in utocs]
+            retoc = find_retoc()
+            utoc_summary = []
+            if retoc is not None:
+                for utoc in utocs:
+                    if utoc.stem.casefold() == "global":
+                        continue
+                    stat = utoc.stat()
+                    key = "utoc:" + str(utoc.relative_to(paks_dir))
+                    signature = [stat.st_size, stat.st_mtime_ns]
+                    cached = cache.get(key) if isinstance(cache, dict) else None
+                    if isinstance(cached, dict) and cached.get("signature") == signature and cached.get("v") == 2:
+                        summary = cached["summary"]
+                    else:
+                        summary = _summarize_utoc(retoc, utoc)
+                    new_cache[key] = {"v": 2, "signature": signature, "summary": summary}
+                    utoc_summary.append(summary)
+            try:
+                self.index_file.write_text(json.dumps(new_cache), encoding="utf-8")
+            except OSError:
+                pass
             return {
                 "pak_summary": pak_summary,
                 "utoc_containers": containers,
+                "utoc_summary": utoc_summary,
+                "retoc": retoc is not None,
                 "files": sorted(entries.values(), key=lambda item: (str(item["folder"]).casefold(), str(item["name"]).casefold())),
                 "banks": banks,
                 "paks_scanned": len(paks),

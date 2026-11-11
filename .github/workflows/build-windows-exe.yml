@@ -40,12 +40,14 @@ jobs:
           python -m pip install --no-cache-dir --no-binary pyinstaller pyinstaller
           python -m pip install pywebview pillow pefile
 
-      - name: Build repak (pak reader/writer for the Audio tab)
+      - name: Build repak and retoc (archive tools for the Audio tab)
         shell: pwsh
         run: |
           cargo install --git https://github.com/trumank/repak --rev 355b5f62f51959c7cc6dd5a51708646ef483065d repak_cli --locked --root repak-build
           New-Item -ItemType Directory -Force tools/vgmstream | Out-Null
           Copy-Item repak-build/bin/repak.exe tools/repak.exe
+          cargo install --git https://github.com/trumank/retoc --rev 885a8dae740cb1ce1e41ff2e74f67f9f0c118237 retoc_cli --locked --root retoc-build
+          Copy-Item retoc-build/bin/retoc.exe tools/retoc.exe
 
       - name: Download vgmstream (Wwise audio decoder for the Audio tab)
         shell: pwsh
@@ -56,6 +58,7 @@ jobs:
           Set-Content -LiteralPath tools/THIRD-PARTY.txt -Encoding utf8 -Value @"
           Bundled tools used by the Audio tab:
           - repak (https://github.com/trumank/repak), MIT or Apache-2.0 license
+          - retoc (https://github.com/trumank/retoc), MIT license
           - vgmstream (https://github.com/vgmstream/vgmstream), ISC license, see vgmstream/COPYING
           "@
 
@@ -87,10 +90,10 @@ jobs:
           $check | Set-Content -LiteralPath check_icon.py -Encoding utf8
           python check_icon.py dist/GZProModManager.exe
 
-      - name: Attach builds to v1.13.1 release
+      - name: Attach builds to v1.13.2 release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.13.1
+          tag_name: v1.13.2
           files: |
             dist/GZProModManager.exe
           overwrite_files: true
@@ -98,10 +101,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set v1.13.1 as the latest GitHub release
+      - name: Set v1.13.2 as the latest GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          $release = gh api "repos/${{ github.repository }}/releases/tags/v1.13.1" | ConvertFrom-Json
+          $release = gh api "repos/${{ github.repository }}/releases/tags/v1.13.2" | ConvertFrom-Json
           gh api --method PATCH "repos/${{ github.repository }}/releases/$($release.id)" -F make_latest=true

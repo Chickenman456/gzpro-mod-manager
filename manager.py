@@ -36,7 +36,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.13.1"
+APP_VERSION = "1.13.2"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -681,6 +681,16 @@ class ModManager:
         except OSError as error:
             raise ManagerError(f"Could not open the mod install folder: {error}") from error
         return {"opened": True, "path": str(self.paks_dir)}
+
+    def installed_mod_file_names(self) -> set[str]:
+        """Casefolded file names of every file the manager has deployed, so scans skip mods."""
+        with self._lock:
+            names: set[str] = set()
+            for record in self._read_manifest():
+                for member in record.get("members", []):
+                    target = member.get("target")
+                    names.add((Path(str(target)).name if target else str(member.get("name", ""))).casefold())
+            return names
 
     def audio_build_and_install(self, name: object) -> dict[str, object]:
         archive = self.audio.build_mod_zip(name, self.state_base / "audio" / "built")
@@ -2138,7 +2148,7 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
             workspace = self.manager.audio
             if parts.path == "/api/audio/scan":
                 refresh = (query.get("refresh") or ["0"])[0] == "1"
-                self._send_json(workspace.scan(self.manager.paks_dir, refresh))
+                self._send_json(workspace.scan(self.manager.paks_dir, refresh, self.manager.installed_mod_file_names()))
             elif parts.path == "/api/audio/details":
                 self._send_json(workspace.details(entry_id))
             elif parts.path in {"/api/audio/preview", "/api/audio/draft-preview"}:
