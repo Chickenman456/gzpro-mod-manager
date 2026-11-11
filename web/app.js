@@ -4,13 +4,15 @@ const byId = (id) => document.getElementById(id);
 
  
 function selectTab(name) {
-  for (const page of ["mods", "changelog", "troubleshooting"]) {
+  for (const page of ["mods", "audio", "changelog", "troubleshooting"]) {
     const active = name === page;
     byId("tab-" + page).classList.toggle("active", active);
     byId("tab-" + page).setAttribute("aria-selected", String(active));
     byId("page-" + page).hidden = !active;
   }
   if (name === "changelog" && !state.changelogLoaded) loadChangelog();
+  if (name === "audio" && !audio.loaded) scanAudio(false);
+  document.querySelector(".drag-overlay").textContent = name === "audio" ? "DROP AUDIO TO REPLACE THE SELECTED SOUND" : "DROP MOD ZIP TO IMPORT";
 }
 
 function formatCommitDate(value) {
@@ -589,6 +591,7 @@ byId("launch-game").addEventListener("click", async () => {
 byId("check-updates").addEventListener("click", checkForUpdates);
 byId("install-update").addEventListener("click", installUpdate);
 byId("tab-mods").addEventListener("click", () => selectTab("mods"));
+byId("tab-audio").addEventListener("click", () => selectTab("audio"));
 byId("tab-changelog").addEventListener("click", () => selectTab("changelog"));
 byId("tab-troubleshooting").addEventListener("click", () => selectTab("troubleshooting"));
 byId("refresh-changelog").addEventListener("click", loadChangelog);
@@ -637,6 +640,10 @@ window.addEventListener("drop", (event) => {
   dragDepth = 0;
   document.body.classList.remove("file-dragging");
   dropZone.classList.remove("dragging");
+  if (!byId("page-audio").hidden) {
+    replaceSelectedSound(event.dataTransfer.files[0]);
+    return;
+  }
   if (event.dataTransfer.files.length > 1) {
     setMessage("Drop one mod ZIP at a time so each installation can be checked and backed up separately.", true);
     return;
@@ -655,3 +662,245 @@ async function showVersion() {
 
 showVersion();
 refreshStatus();
+
+// ---------- Audio tab ----------
+const audio = { loaded: false, files: [], selected: null, busy: false };
+const AUDIO_LIST_LIMIT = 300;
+
+function audioStatus(message, isError = false) {
+  const element = byId("audio-status");
+  element.textContent = message;
+  element.classList.toggle("error", isError);
+}
+
+function renderWwiseNote(tools) {
+  const note = byId("audio-wwise");
+  note.textContent = "";
+  if (!tools) return;
+  if (!tools.repak || !tools.vgmstream) {
+    note.textContent = "The audio tools are missing from this build. Download the latest release.";
+    note.classList.add("error");
+    return;
+  }
+  note.classList.remove("error");
+  if (tools.wwise) {
+    note.textContent = `Wwise found: ${tools.wwise_path}`;
+  } else {
+    note.append("Most game sounds use Wwise's compressed format, so replacing them needs Audiokinetic Wwise (free) installed on this PC. ");
+    const link = document.createElement("a");
+    link.href = tools.wwise_download_url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "Get Wwise";
+    note.append(link, ". Listening, exporting, and replacing uncompressed sounds work without it.");
+  }
+}
+
+async function scanAudio(refresh) {
+  if (audio.busy) return;
+  audio.busy = true;
+  byId("audio-rescan").disabled = true;
+  audioStatus(refresh ? "Rescanning the game's .pak files…" : "Scanning the game's .pak files for sounds…");
+  try {
+    const result = await requestJson(`/api/audio/scan${refresh ? "?refresh=1" : ""}`, { timeoutMs: 600000 });
+    audio.loaded = true;
+    audio.files = result.files;
+    renderWwiseNote(result.tools);
+    renderDraft(result.draft);
+    const problems = result.errors.length ? ` ${result.errors.length} file(s) couldn't be read: ${result.errors.slice(0, 3).join("; ")}` : "";
+    audioStatus(
+      result.files.length
+        ? `Found ${result.files.length} sounds in ${result.paks_scanned} .pak file(s)${result.banks ? `, plus ${result.banks} sound banks (bank sounds can't be replaced yet)` : ""}.${problems}`
+        : `No .wem sounds were found in ${result.paks_scanned} .pak file(s).${problems}`,
+      Boolean(result.errors.length && !result.files.length)
+    );
+    renderAudioList();
+  } catch (error) {
+    audioStatus(`Could not scan the game's audio: ${error.message}`, true);
+  } finally {
+    audio.busy = false;
+    byId("audio-rescan").disabled = false;
+  }
+}
+
+function renderAudioList() {
+  const list = byId("audio-list");
+  const query = byId("audio-filter").value.trim().toLocaleLowerCase();
+  const staged = new Set(audio.draftIds || []);
+  const matches = query
+    ? audio.files.filter((file) => file.path.toLocaleLowerCase().includes(query))
+    : audio.files;
+  list.replaceChildren();
+  for (const file of matches.slice(0, AUDIO_LIST_LIMIT)) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "audio-row" + (audio.selected?.id === file.id ? " selected" : "");
+    row.setAttribute("role", "option");
+    const name = document.createElement("span");
+    name.textContent = file.name;
+    const folder = document.createElement("span");
+    folder.className = "audio-folder";
+    folder.textContent = file.folder;
+    const left = document.createElement("span");
+    left.append(name, document.createElement("br"), folder);
+    row.append(left);
+    if (staged.has(file.id)) {
+      const badge = document.createElement("span");
+      badge.className = "audio-badge";
+      badge.textContent = "REPLACED";
+      row.append(badge);
+    }
+    row.addEventListener("click", () => selectSound(file));
+    list.append(row);
+  }
+  if (matches.length > AUDIO_LIST_LIMIT) {
+    const more = document.createElement("div");
+    more.className = "audio-more";
+    more.textContent = `Showing ${AUDIO_LIST_LIMIT} of ${matches.length}. Search to narrow it down.`;
+    list.append(more);
+  }
+  byId("audio-count").textContent = audio.files.length ? `${matches.length} match${matches.length === 1 ? "" : "es"}` : "";
+}
+
+async function selectSound(file) {
+  audio.selected = file;
+  renderAudioList();
+  byId("audio-selected").hidden = false;
+  byId("audio-selected-title").textContent = file.name;
+  const details = byId("audio-selected-details");
+  details.textContent = `${file.path} · loading details…`;
+  const player = byId("audio-player");
+  player.src = `/api/audio/preview?id=${file.id}`;
+  try {
+    const info = await requestJson(`/api/audio/details?id=${file.id}`, { timeoutMs: 120000 });
+    if (audio.selected?.id !== file.id) return;
+    const parts = [file.path, info.encoding];
+    if (info.seconds != null) parts.push(`${info.seconds}s`);
+    if (info.sample_rate) parts.push(`${info.sample_rate} Hz`);
+    if (info.channels) parts.push(info.channels === 1 ? "mono" : `${info.channels} channels`);
+    if (info.needs_wwise) parts.push("replacing needs Wwise");
+    details.textContent = parts.join(" · ");
+  } catch (error) {
+    details.textContent = `${file.path} · ${error.message}`;
+  }
+}
+
+async function replaceSelectedSound(file) {
+  if (!file) return;
+  if (!audio.selected) {
+    audioStatus("Pick a sound from the list first, then choose or drop your audio file.", true);
+    return;
+  }
+  const target = audio.selected;
+  const status = byId("audio-build-status");
+  status.classList.remove("error");
+  status.textContent = `Converting ${file.name} to replace ${target.name}…`;
+  try {
+    const response = await fetch(`/api/audio/replace?id=${target.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream", "X-Audio-Name": encodeURIComponent(file.name) },
+      body: file,
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `Request failed (${response.status}).`);
+    renderDraft(result.draft);
+    renderAudioList();
+    status.textContent = `${target.name} will be replaced by ${file.name}. Add more, or build the mod below.`;
+  } catch (error) {
+    status.classList.add("error");
+    status.textContent = error.message.replace(/^WWISE_REQUIRED:/, "");
+  } finally {
+    byId("audio-file").value = "";
+  }
+}
+
+function renderDraft(draft) {
+  audio.draftIds = draft.map((item) => item.id);
+  const list = byId("audio-draft");
+  list.replaceChildren();
+  if (!draft.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No replacements yet.";
+    list.append(empty);
+  }
+  for (const item of draft) {
+    const row = document.createElement("div");
+    row.className = "audio-draft-item";
+    const text = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = item.name;
+    const sub = document.createElement("div");
+    sub.className = "muted";
+    sub.textContent = `${item.source} · ${item.method}`;
+    text.append(title, sub);
+    const player = document.createElement("audio");
+    player.controls = true;
+    player.preload = "none";
+    player.src = `/api/audio/draft-preview?id=${item.id}`;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "button button-secondary";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", async () => {
+      try {
+        const result = await requestJson("/api/audio/draft/remove", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id }),
+        });
+        renderDraft(result.draft);
+        renderAudioList();
+      } catch (error) {
+        byId("audio-build-status").textContent = error.message;
+      }
+    });
+    row.append(text, player, remove);
+    list.append(row);
+  }
+  byId("audio-build").disabled = !draft.length;
+}
+
+byId("audio-rescan").addEventListener("click", () => scanAudio(true));
+byId("audio-filter").addEventListener("input", () => renderAudioList());
+byId("audio-file").addEventListener("change", (event) => replaceSelectedSound(event.target.files[0]));
+byId("audio-export").addEventListener("click", async () => {
+  if (!audio.selected) return;
+  const status = byId("audio-build-status");
+  status.classList.remove("error");
+  try {
+    const result = await requestJson("/api/audio/export", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: audio.selected.id }),
+      timeoutMs: 120000,
+    });
+    status.textContent = `Exported to ${result.path}`;
+  } catch (error) {
+    status.classList.add("error");
+    status.textContent = error.message;
+  }
+});
+byId("audio-build").addEventListener("click", async () => {
+  const name = byId("audio-mod-name").value.trim();
+  const status = byId("audio-build-status");
+  status.classList.remove("error");
+  if (!name) {
+    status.classList.add("error");
+    status.textContent = "Give your audio mod a name first.";
+    return;
+  }
+  byId("audio-build").disabled = true;
+  status.textContent = "Building and installing the audio mod…";
+  try {
+    await requestJson("/api/audio/build", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+      timeoutMs: 600000,
+    });
+    status.textContent = `Installed "${name}". It's in the Mods tab, where you can turn it off or delete it.`;
+    byId("audio-mod-name").value = "";
+    renderDraft([]);
+    renderAudioList();
+    refreshStatus();
+  } catch (error) {
+    status.classList.add("error");
+    status.textContent = error.message;
+    byId("audio-build").disabled = false;
+  }
+});

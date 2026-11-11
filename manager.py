@@ -22,7 +22,9 @@ from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import BinaryIO
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
+
+import audio
 
 
 DEFAULT_GAME_DIR = Path(
@@ -34,7 +36,7 @@ PAKS_DIRECTORY = Path("GZPro") / "Content" / "Paks"
 LOGIC_MODS_DIRECTORY = "LogicMods"
 MAX_MOD_SIZE = 8 * 1024 * 1024 * 1024
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-APP_VERSION = "1.12.14"
+APP_VERSION = "1.13.0"
 GITHUB_RELEASE_API = "https://api.github.com/repos/Chickenman456/gzpro-mod-manager/releases/latest"
 MANAGER_VERSION = 2
 MOD_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -307,6 +309,7 @@ class ModManager:
         self.state_base = (state_base or _default_state_base()).expanduser().resolve()
         self.state_base.mkdir(parents=True, exist_ok=True)
         self.config_path = self.state_base / "config.json"
+        self.audio = audio.AudioWorkspace(self.state_base)
         configured_game_dir = self._read_configured_game_dir()
         self.game_dir = _canonical_game_dir(
             game_dir or configured_game_dir or DEFAULT_GAME_DIR
@@ -679,6 +682,29 @@ class ModManager:
             raise ManagerError(f"Could not open the mod install folder: {error}") from error
         return {"opened": True, "path": str(self.paks_dir)}
 
+    def audio_build_and_install(self, name: object) -> dict[str, object]:
+        archive = self.audio.build_mod_zip(name, self.state_base / "audio" / "built")
+        try:
+            with open(archive, "rb") as stream:
+                result = self.install_mod(stream, archive.name, archive.stat().st_size, MOD_KIND_OVERRIDE)
+        finally:
+            archive.unlink(missing_ok=True)
+        self.audio.clear_draft()
+        return result
+
+    def audio_export(self, entry_id: object) -> dict[str, object]:
+        export_dir = Path.home() / "Documents" / "GZPro Audio Exports"
+        wav = self.audio.export(str(entry_id), export_dir)
+        if sys.platform == "win32":
+            try:
+                subprocess.Popen(
+                    ["explorer.exe", "/select,", str(wav)],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
+                )
+            except OSError:
+                pass
+        return {"path": str(wav)}
+
     def launch_game(self) -> dict[str, object]:
         if sys.platform != "win32":
             raise StateError("Launching the game from the manager is supported on Windows only.")
@@ -806,6 +832,31 @@ class ModManager:
                     if not name or name.startswith("/") or any(part in {"", ".", ".."} for part in name.split("/")):
                         raise ManagerError(f"Unsafe path in the package: {info.filename}")
                     normalized.append((info, name))
+
+                marker = [info for info, name in normalized if name.casefold() == audio.AUDIO_MOD_MARKER]
+                if marker:
+                    # Audio mods from the Audio tab: one loose-file .pak, no IoStore container.
+                    paks = [(info, name) for info, name in normalized if "/" not in name and name.casefold().endswith(".pak")]
+                    others = [name for info, name in normalized if name.casefold() != audio.AUDIO_MOD_MARKER and not name.casefold().endswith(".pak")]
+                    if len(paks) != 1 or others or len(normalized) != 2:
+                        raise ManagerError("An audio mod package must contain exactly one .pak and its gzpro-audio-mod.json file.")
+                    pak_info, pak_name = paks[0]
+                    pak_stem = _safe_mod_stem(Path(pak_name).stem)
+                    if pak_info.file_size <= 0 or pak_info.file_size > MAX_MOD_SIZE:
+                        raise ManagerError("The audio mod .pak is empty or too large.")
+                    with package.open(pak_info) as member_stream:
+                        header_digest = hashlib.sha256()
+                        while chunk := member_stream.read(1024 * 1024):
+                            header_digest.update(chunk)
+                    members = [{
+                        "entry": pak_name,
+                        "name": pak_stem + ".pak",
+                        "sha256": header_digest.hexdigest(),
+                        "size": pak_info.file_size,
+                        "target": f"GZPro/Content/Paks/~mods/{pak_stem}.pak",
+                    }]
+                    stem = pak_stem[:-2] if pak_stem.casefold().endswith("_p") else pak_stem
+                    return _safe_mod_stem(stem), members, description, thumbnail
 
                 has_skin_loader = any(name.casefold().startswith("gzskinloader/") for _, name in normalized)
                 skin_infos = []
@@ -2071,10 +2122,40 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
             except (ManagerError, OSError) as error:
                 self._handle_request_error(error)
             return
+        if self.path.startswith("/api/audio/"):
+            self._handle_audio_get()
+            return
         if self.path.startswith("/api/"):
             self._send_json({"error": "Unknown API endpoint."}, 404)
             return
         super().do_GET()
+
+    def _handle_audio_get(self) -> None:
+        parts = urlsplit(self.path)
+        query = parse_qs(parts.query)
+        entry_id = (query.get("id") or [""])[0]
+        try:
+            workspace = self.manager.audio
+            if parts.path == "/api/audio/scan":
+                refresh = (query.get("refresh") or ["0"])[0] == "1"
+                self._send_json(workspace.scan(self.manager.paks_dir, refresh))
+            elif parts.path == "/api/audio/details":
+                self._send_json(workspace.details(entry_id))
+            elif parts.path in {"/api/audio/preview", "/api/audio/draft-preview"}:
+                wav = workspace.preview(entry_id) if parts.path == "/api/audio/preview" else workspace.draft_preview(entry_id)
+                data = wav.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "audio/wav")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self._send_json({"error": "Unknown API endpoint."}, 404)
+        except audio.AudioError as error:
+            self._send_json({"error": str(error)}, error.status_code)
+        except (ManagerError, OSError) as error:
+            self._handle_request_error(error)
 
     def do_POST(self) -> None:
         if not self._local_origin():
@@ -2091,6 +2172,9 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
                 exit_timer = threading.Timer(1.5, _exit_for_update)
                 exit_timer.daemon = True
                 exit_timer.start()
+                return
+            if self.path.startswith("/api/audio/"):
+                self._handle_audio_post()
                 return
             if self.path == "/api/game/launch":
                 self._send_json(self.manager.launch_game())
@@ -2138,6 +2222,26 @@ class ManagerRequestHandler(SimpleHTTPRequestHandler):
         except (ManagerError, OSError, ValueError) as error:
             self.close_connection = True
             self._handle_request_error(error)
+
+    def _handle_audio_post(self) -> None:
+        parts = urlsplit(self.path)
+        workspace = self.manager.audio
+        try:
+            if parts.path == "/api/audio/replace":
+                entry_id = (parse_qs(parts.query).get("id") or [""])[0]
+                filename = unquote(self.headers.get("X-Audio-Name", ""))
+                self._send_json(workspace.replace(entry_id, self.rfile, self._content_length(), filename))
+            elif parts.path == "/api/audio/draft/remove":
+                self._send_json(workspace.remove_from_draft(str(self._read_json_body().get("id", ""))))
+            elif parts.path == "/api/audio/export":
+                self._send_json(self.manager.audio_export(self._read_json_body().get("id")))
+            elif parts.path == "/api/audio/build":
+                self._send_json(self.manager.audio_build_and_install(self._read_json_body().get("name")), 201)
+            else:
+                self._send_json({"error": "Unknown API endpoint."}, 404)
+        except audio.AudioError as error:
+            self.close_connection = True
+            self._send_json({"error": str(error)}, error.status_code)
 
     def _read_json_body(self) -> dict[str, object]:
         length = self._content_length()

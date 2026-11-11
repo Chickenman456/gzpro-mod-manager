@@ -62,6 +62,7 @@
 
     <nav class="tab-bar" role="tablist" aria-label="Manager pages">
       <button class="tab-button active" id="tab-mods" type="button" role="tab" aria-selected="true" aria-controls="page-mods">Mods</button>
+      <button class="tab-button" id="tab-audio" type="button" role="tab" aria-selected="false" aria-controls="page-audio">Audio</button>
       <button class="tab-button" id="tab-changelog" type="button" role="tab" aria-selected="false" aria-controls="page-changelog">Changelog</button>
       <button class="tab-button" id="tab-troubleshooting" type="button" role="tab" aria-selected="false" aria-controls="page-troubleshooting">Troubleshooting</button>
     </nav>
@@ -145,6 +146,51 @@
           <article class="troubleshooting-item"><h3>Mod replacement or deletion is blocked</h3><p><strong>Cause:</strong> A game file no longer matches the manager's verified copy, or its backup is missing.</p><p><strong>Fix:</strong> The manager leaves changed files untouched to avoid deleting someone else's work. Do not force-delete them; copy the exact error details and report the issue.</p></article>
         </div>
         <p class="muted">If the listed fix does not solve it, use <strong>Copy error details</strong> beneath the error and include them when you <a href="https://github.com/Chickenman456/gzpro-mod-manager/issues/new" target="_blank" rel="noopener noreferrer">report a bug</a>.</p>
+      </section>
+    </section>
+
+    <section id="page-audio" class="tab-page" role="tabpanel" aria-labelledby="tab-audio" hidden>
+      <section class="panel" aria-labelledby="audio-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="audio-title">Audio replacer</h2>
+            <p class="muted">Browse the game's Wwise sounds, listen to them, export them as WAV, and swap in your own audio. Replacements are packed into one audio mod and installed like any other mod, so you can turn it off or delete it later.</p>
+          </div>
+          <button id="audio-rescan" class="button button-secondary" type="button">Rescan</button>
+        </div>
+        <p id="audio-wwise" class="message" role="status"></p>
+        <div class="audio-search">
+          <input id="audio-filter" type="text" placeholder="Search by file name or folder, e.g. 1234 or Media" aria-label="Search sounds">
+          <span id="audio-count" class="muted"></span>
+        </div>
+        <p id="audio-status" class="message" role="status">Open this tab to scan the game's sounds.</p>
+        <div id="audio-list" class="audio-list" role="listbox" aria-label="Game sounds"></div>
+      </section>
+
+      <section id="audio-selected" class="panel" aria-labelledby="audio-selected-title" hidden>
+        <h2 id="audio-selected-title">Selected sound</h2>
+        <p id="audio-selected-details" class="muted"></p>
+        <audio id="audio-player" controls preload="none"></audio>
+        <div class="audio-actions">
+          <button id="audio-export" class="button button-secondary" type="button">Export WAV</button>
+          <label class="button button-primary audio-replace-button">
+            Replace with my audio…
+            <input id="audio-file" type="file" accept=".wav,.mp3,.ogg,.flac,.wem" hidden>
+          </label>
+        </div>
+        <p class="muted">Use WAV, MP3, OGG or FLAC, or a .wem you converted yourself. You can also drop a file anywhere on this tab.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="audio-draft-title">
+        <h2 id="audio-draft-title">Your audio mod</h2>
+        <p class="muted">Replacements you've made are collected here. When you're done, name the mod and install it.</p>
+        <div id="audio-draft" class="audio-draft"></div>
+        <div class="profile-form">
+          <label for="audio-mod-name">Mod name</label>
+          <input id="audio-mod-name" type="text" maxlength="48" placeholder="e.g. Heisei Roars">
+          <button id="audio-build" class="button button-primary" type="button" disabled>Build and install</button>
+        </div>
+        <p id="audio-build-status" class="message" role="status"></p>
       </section>
     </section>
 

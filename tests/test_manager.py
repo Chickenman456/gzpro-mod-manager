@@ -1003,3 +1003,119 @@ class LinkOnlyUpdateTests(unittest.TestCase):
             self.assertFalse(manager_module._can_self_update())
             with self.assertRaises(ManagerError):
                 manager_module.schedule_self_update({"download_url": "https://example.invalid/x.exe"})
+
+
+class AudioReplacerTests(unittest.TestCase):
+    """Audio tab: Wwise PCM writer, installer support for audio mods, and the full
+    scan -> replace -> build -> install flow when repak and vgmstream are available."""
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def _tone(self, path: Path, channels: int = 1, rate: int = 22050) -> Path:
+        import math
+        import struct
+        import wave
+
+        with wave.open(str(path), "wb") as handle:
+            handle.setnchannels(channels)
+            handle.setsampwidth(2)
+            handle.setframerate(rate)
+            frame = lambda i: struct.pack("<h", int(6000 * math.sin(i / 9))) * channels
+            handle.writeframes(b"".join(frame(i) for i in range(rate // 4)))
+        return path
+
+    def _game(self) -> ModManager:
+        game = self.root / "game"
+        (game / "GZPro" / "Content" / "Paks").mkdir(parents=True)
+        exe = game / "GZPro" / "Binaries" / "Win64" / "GZProSteam-Win64-Shipping.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"test executable")
+        manager = ModManager(game_dir=game, state_base=self.root / "state")
+        manager._is_game_running = lambda: False
+        return manager
+
+    def test_pcm_wem_has_wwise_header(self) -> None:
+        import struct
+        import audio
+
+        wem = self.root / "out.wem"
+        audio.write_pcm_wem(self._tone(self.root / "in.wav", channels=2, rate=48000), wem)
+        data = wem.read_bytes()
+        self.assertEqual(data[:4], b"RIFF")
+        self.assertEqual(data[8:16], b"WAVEfmt ")
+        size, tag, channels, rate = struct.unpack_from("<IHHI", data, 16)
+        self.assertEqual((size, tag, channels, rate), (0x18, 0xFFFE, 2, 48000))
+        self.assertEqual(struct.unpack_from("<I", data, 20 + 0x14)[0], 2 | (1 << 8) | (0x3 << 12))
+
+    def test_installer_accepts_audio_mod_package_and_rejects_extras(self) -> None:
+        import io
+        import audio
+
+        manager = self._game()
+        package = io.BytesIO()
+        with zipfile.ZipFile(package, "w") as archive:
+            archive.writestr("Roars_P.pak", b"fake pak data")
+            archive.writestr(audio.AUDIO_MOD_MARKER, "{}")
+        data = package.getvalue()
+        record = manager.install_mod(io.BytesIO(data), "Roars.zip", len(data))
+        deployed = manager.game_dir / "GZPro" / "Content" / "Paks" / "~mods" / "Roars_P.pak"
+        self.assertTrue(deployed.is_file())
+        self.assertEqual(record["stem"], "Roars")
+
+        extra = io.BytesIO()
+        with zipfile.ZipFile(extra, "w") as archive:
+            archive.writestr("Other_P.pak", b"fake pak data")
+            archive.writestr("GZPro/Binaries/Win64/evil.dll", b"x")
+            archive.writestr(audio.AUDIO_MOD_MARKER, "{}")
+        data = extra.getvalue()
+        with self.assertRaises(ManagerError):
+            manager.install_mod(io.BytesIO(data), "Other.zip", len(data))
+
+    def test_audio_ids_cannot_escape_the_draft_folder(self) -> None:
+        import audio
+
+        workspace = audio.AudioWorkspace(self.root / "state")
+        for bad in ("../../x", "", "A" * 20, None):
+            with self.assertRaises(audio.AudioError):
+                workspace.remove_from_draft(bad)
+            with self.assertRaises(audio.AudioError):
+                workspace.draft_preview(bad)
+
+    def test_full_replace_flow_with_real_tools(self) -> None:
+        import io
+        import audio
+
+        repak, vgmstream = audio.find_repak(), audio.find_vgmstream()
+        if not repak or not vgmstream:
+            self.skipTest("repak and vgmstream are not available")
+        manager = self._game()
+        source = self.root / "src" / "GZPro" / "Content" / "WwiseAudio" / "Media"
+        source.mkdir(parents=True)
+        audio.write_pcm_wem(self._tone(self.root / "orig.wav", channels=2, rate=48000), source / "777.wem")
+        game_pak = manager.paks_dir / "pakchunk0-Windows.pak"
+        code, _, err = audio._run([repak, "pack", "--version", "V11", "--quiet", self.root / "src", game_pak], timeout=120)
+        self.assertEqual(code, 0, err)
+
+        scan = manager.audio.scan(manager.paks_dir)
+        self.assertEqual([item["name"] for item in scan["files"]], ["777.wem"])
+        entry_id = scan["files"][0]["id"]
+        self.assertFalse(manager.audio.details(entry_id)["needs_wwise"])
+        self.assertGreater(manager.audio.preview(entry_id).stat().st_size, 1000)
+
+        replacement = self._tone(self.root / "new.wav").read_bytes()
+        draft = manager.audio.replace(entry_id, io.BytesIO(replacement), len(replacement), "roar.wav")["draft"]
+        self.assertEqual(draft[0]["method"], "Wwise PCM")
+        manager.audio_build_and_install("Test Roars")
+
+        built = manager.paks_dir / "~mods" / "Test_Roars_P.pak"
+        self.assertTrue(built.is_file())
+        listed = audio._run([repak, "list", built], timeout=60)[1].split()
+        self.assertEqual(listed, ["GZPro/Content/WwiseAudio/Media/777.wem"])
+        self.assertEqual(manager.audio.draft(), [])
+        # The installed audio mod must not show up as a game sound on the next scan.
+        self.assertEqual(len(manager.audio.scan(manager.paks_dir, refresh=True)["files"]), 1)
