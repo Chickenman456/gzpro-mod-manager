@@ -15,21 +15,6 @@ The project is open source under the MIT License. See [LICENSE](LICENSE). UI con
 
 To run from source for development, install Python 3.10 or newer and run `run.bat`.
 
-## Audio tab (experimental)
-
-> **Experimental:** the audio replacer hasn't been confirmed to work in Godzilla Remastered yet. It may not find the game's sounds, and the game may ignore replaced sounds. Original game files are never changed, and audio mods can be turned off or deleted in the Mods tab.
-
-The **Audio** tab replaces the game's Wwise sounds (`.wem` files stored in the game's `.pak` files):
-
-1. Open the tab. It scans the game's `.pak` files and lists every `.wem` sound. Search by file name or folder.
-2. Pick a sound to play it. **Export WAV** saves it, plus the original `.wem`, to `Documents\GZPro Audio Exports`.
-3. Click **Replace with my audio…** (or drop a file on the tab) and choose a WAV, MP3, OGG or FLAC file, or a `.wem` you converted yourself.
-4. Repeat for as many sounds as you like, then name the mod and click **Build and install**. The replacements are packed into one `<Name>_P.pak` in `~mods` and show up in the Mods tab, where you can turn them off or delete them.
-
-Wwise picks the decoder for each sound from the game's sound bank, so a replacement has to use the same format as the original. Uncompressed (PCM) sounds are converted directly. Compressed sounds, which are most of them, need [Audiokinetic Wwise](https://www.audiokinetic.com/en/download/) (free) installed on your PC; the manager finds `WwiseConsole.exe` automatically. Sounds inside `.bnk` sound banks can't be replaced yet.
-
-The Audio tab uses two bundled open-source tools: [repak](https://github.com/trumank/repak) to read and write `.pak` files and [vgmstream](https://github.com/vgmstream/vgmstream) to decode Wwise audio.
-
 Some antivirus engines flag unsigned PyInstaller apps as suspicious even when they're safe. The exe uses a PyInstaller bootloader compiled from source to reduce these false positives. You can check what's inside by reading the source and the [build workflow](.github/workflows/build-windows-exe.yml).
 
 The Windows executable runs without opening a terminal and opens in a frameless, resizable desktop window with a custom Steam-style title bar and window controls (using WebView2 when available); if that runtime is unavailable, it falls back to the default browser. Its Windows executable icon is generated from `gzpicon.png`. The header's **Check for updates** button checks the latest stable GitHub release. When a new version is out, it links to the release page so you can download the new exe and replace the old one. Mod backups and settings remain in `%LOCALAPPDATA%\\GZProModManager` and are not replaced by an update.

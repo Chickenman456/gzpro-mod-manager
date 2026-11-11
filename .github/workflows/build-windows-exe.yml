@@ -40,39 +40,14 @@ jobs:
           python -m pip install --no-cache-dir --no-binary pyinstaller pyinstaller
           python -m pip install pywebview pillow pefile
 
-      - name: Build repak and retoc (archive tools for the Audio tab)
-        shell: pwsh
-        run: |
-          cargo install --git https://github.com/trumank/repak --rev 355b5f62f51959c7cc6dd5a51708646ef483065d repak_cli --locked --root repak-build
-          New-Item -ItemType Directory -Force tools/vgmstream | Out-Null
-          Copy-Item repak-build/bin/repak.exe tools/repak.exe
-          cargo install --git https://github.com/trumank/retoc --rev 885a8dae740cb1ce1e41ff2e74f67f9f0c118237 retoc_cli --locked --root retoc-build
-          Copy-Item retoc-build/bin/retoc.exe tools/retoc.exe
-
-      - name: Download vgmstream (Wwise audio decoder for the Audio tab)
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri https://github.com/vgmstream/vgmstream-releases/releases/download/nightly/vgmstream-win64.zip -OutFile vgmstream-win64.zip
-          Expand-Archive vgmstream-win64.zip -DestinationPath tools/vgmstream -Force
-          if (!(Test-Path tools/vgmstream/vgmstream-cli.exe)) { throw "vgmstream-cli.exe is missing from the download" }
-          Set-Content -LiteralPath tools/THIRD-PARTY.txt -Encoding utf8 -Value @"
-          Bundled tools used by the Audio tab:
-          - repak (https://github.com/trumank/repak), MIT or Apache-2.0 license
-          - retoc (https://github.com/trumank/retoc), MIT license
-          - vgmstream (https://github.com/vgmstream/vgmstream), ISC license, see vgmstream/COPYING
-          "@
-
       - name: Run test suite
-        env:
-          GZPRO_REPAK: ${{ github.workspace }}\tools\repak.exe
-          GZPRO_VGMSTREAM: ${{ github.workspace }}\tools\vgmstream\vgmstream-cli.exe
         run: python -m unittest discover -s tests -v
 
       - name: Convert GZP icon to Windows ICO
         run: python -c "from PIL import Image; Image.open('gzpicon.png').convert('RGBA').save('GZProModManager.ico', format='ICO', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"
 
       - name: Build one-file executable
-        run: pyinstaller --noconfirm --clean --onefile --noconsole --name GZProModManager --icon GZProModManager.ico --collect-all webview --collect-all clr_loader --collect-all pythonnet --add-data "web;web" --add-data "gzprologo.png;." --add-data "gzpicon.png;." --add-data "GZProModManager.ico;." --add-data "tools;tools" manager.py
+        run: pyinstaller --noconfirm --clean --onefile --noconsole --name GZProModManager --icon GZProModManager.ico --collect-all webview --collect-all clr_loader --collect-all pythonnet --add-data "web;web" --add-data "gzprologo.png;." --add-data "gzpicon.png;." --add-data "GZProModManager.ico;." manager.py
 
       - name: Check the executable carries the GZP icon
         shell: pwsh
@@ -90,10 +65,10 @@ jobs:
           $check | Set-Content -LiteralPath check_icon.py -Encoding utf8
           python check_icon.py dist/GZProModManager.exe
 
-      - name: Attach builds to v1.13.2 release
+      - name: Attach builds to v1.13.3 release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.13.2
+          tag_name: v1.13.3
           files: |
             dist/GZProModManager.exe
           overwrite_files: true
@@ -101,10 +76,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set v1.13.2 as the latest GitHub release
+      - name: Set v1.13.3 as the latest GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          $release = gh api "repos/${{ github.repository }}/releases/tags/v1.13.2" | ConvertFrom-Json
+          $release = gh api "repos/${{ github.repository }}/releases/tags/v1.13.3" | ConvertFrom-Json
           gh api --method PATCH "repos/${{ github.repository }}/releases/$($release.id)" -F make_latest=true

@@ -308,3 +308,4 @@ body.file-dragging #drop-zone { border-color: var(--accent, #e2a64c); }
 .experimental-tag { display: inline-block; margin-left: .35rem; padding: .05rem .35rem; border: 1px solid #d18427; border-radius: 3px; color: #e0a04a; font-size: .65em; letter-spacing: .04em; text-transform: uppercase; vertical-align: middle; }
 .audio-disclaimer { margin: .8rem 0 0; }
 .audio-report { white-space: pre-wrap; user-select: text; font-size: .85rem; color: #c9ced9; background: #11141b; border: 1px solid #343b49; border-radius: 7px; padding: .6rem .8rem; }
+.tab-button[hidden] { display: none; }
